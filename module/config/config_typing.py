@@ -534,6 +534,9 @@ class ConfigModel(BaseModel):
     fight_to_last_man: bool
     """战斗直到全灭"""
 
+    battle_pure_p: bool
+    """战斗仅按P：不划技能连线、不使用EGO或防御，只按 P + Enter"""
+
     teams_be_select_num: int
     """被选中的队伍数量"""
 

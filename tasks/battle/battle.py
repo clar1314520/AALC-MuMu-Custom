@@ -107,6 +107,24 @@ class Battle:
 
         return new_time
 
+    def _press_p_enter(self) -> None:
+        """只按 P + Enter 开战；P 没生效（画面没进战斗）时退化成点胜率卡。"""
+        auto.key_press("p")
+        sleep(0.5)
+        auto.key_press("enter")
+        if self.mouse_click_rate:
+            my_scale = cfg.set_win_size / 1440
+            if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
+                pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
+                auto.mouse_click(pos[0], pos[1])
+                auto.click_element("battle/gear_right.png")
+        else:
+            sleep(1)
+            if not auto.find_element("battle/pause_assets.png", threshold=0.75):
+                self.mouse_click_rate = True
+            else:
+                self.mouse_click_rate = False
+
     def _battle_operation(
         self,
         first_turn: bool,
@@ -117,6 +135,11 @@ class Battle:
         defense_for_solo_used_this_turn: bool = False,
     ) -> bool:
         auto.mouse_click_blank()
+        if cfg.battle_pure_p:
+            # 纯P模式：不划技能连线、不使用EGO技能、不防御，只按 P + Enter
+            self._press_p_enter()
+            log.debug("纯P模式：只按P+Enter开始战斗")
+            return False
         use_limited_defense = (
             defense_for_solo_state is not None
             and defense_for_solo_state.remaining_turns > 0
@@ -173,22 +196,8 @@ class Battle:
                 sleep(0.5)
                 auto.key_press("enter")
         else:
-            auto.key_press("p")
-            sleep(0.5)
-            auto.key_press("enter")
+            self._press_p_enter()
             msg = "使用P+Enter开始战斗"
-            if self.mouse_click_rate:
-                my_scale = cfg.set_win_size / 1440
-                if pos := auto.find_element("battle/win_rate_card.png", threshold=0.75):
-                    pos = [pos[0] + 50 * my_scale, pos[1] - 50 * my_scale]
-                    auto.mouse_click(pos[0], pos[1])
-                    auto.click_element("battle/gear_right.png")
-            else:
-                sleep(1)
-                if not auto.find_element("battle/pause_assets.png", threshold=0.75):
-                    self.mouse_click_rate = True
-                else:
-                    self.mouse_click_rate = False
         log.debug(msg)
         return limited_defense_succeeded
 

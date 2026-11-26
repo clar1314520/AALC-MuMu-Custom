@@ -208,12 +208,42 @@ uv run --no-sync pyinstaller tools/template_tool.py --onefile --noconfirm --wind
 否则 `tests/test_config_schema.py` 会直接失败（这也是护栏）。合并上游时若上游加了新的
 配置项或新的迁移块，注意 `_old_version_cfg_upgrade` 尾部与 `config_version` 数值。
 
+### perf(mirror/battle) — 饰品升两级即退 / 寻路确认即点 / 盲点下一节点 / 纯P开关
+
+- `tasks/mirror/in_shop.py`
+  - `ego_gift_to_power_up(max_upgrades=2)` 重写：一件饰品最多升两级，升满立刻退出
+    （原来升满后还会继续点第三次）；每级固定 `sleep(3)` 换成"确认框出现即点、确认框
+    消失就点下一级"的有界轮询；每级最多点两次「升级」，避免升级动画没放完时第一次
+    点击被游戏忽略。
+  - 新增模块级 `_wait_click()` / `_wait_gone()`（出现即点 / 消失即返回），
+    点击间隔显式压到 0.15s：全局 `mouse_action_interval` 默认 0.5s，会把
+    "看到按钮立刻点"多拖半秒。
+- `tasks/mirror/search_road.py`
+  - 新增 `_click_enter_immediately()`：点完节点后盯「进入」按钮，出现即点，
+    替换原来固定的 `sleep(1.25)` / `sleep(0.75)`（用户感知就是"点确定时犹豫一下"）。
+  - `MirrorMap` 记住上一次识别到的 Bus 坐标（`_bus_position`），`enter_next_node`
+    直接按规划好的方向 + 缓存坐标算出下一节点位置（盲点），省掉每步重新截图找 Bus；
+    盲点未命中时立刻回退到实时定位 Bus，并把 `legend_assets` 消失视为"其实已进入"。
+  - `refresh_floor` 换层时清空 Bus 坐标，防止用旧坐标盲点到错行节点。
+- `tasks/battle/battle.py`：抽出 `_press_p_enter()`，新增纯P短路分支：
+  `battle_pure_p` 为真时只按 P + Enter，不划技能连线、不使用 EGO/防御。
+- `module/config/config_typing.py` / `assets/config/config.example.yaml`
+  / `app/page_card.py` / `i18n/myapp_en.ts`：新增全局开关 `battle_pure_p`
+  （镜牢页高级配置：「战斗仅按P（不划技能、不用EGO/防御）」）。
+
+冲突风险：中。`search_road.py` 的 `enter_next_node` / `_get_next_position` 与上游
+寻路策略耦合最紧，冲突时保留上游主体，再把"盲点优先 + 进入按钮轮询"两段补回；
+`in_shop.py` 的 `ego_gift_to_power_up` 是独立函数，冲突时整段替换即可。
+`battle_pure_p` 与 `config.example.yaml` 必须成对增删，否则 `test_config_schema.py` 失败。
+
 ### test `8ce623b` — 回归测试（新增文件，无冲突）
 
 - `tests/unit/module/automation/test_screenshot_reuse.py`
 - `tests/unit/tasks/event/test_decision_frame.py`（1600x900 合成画面）
 - `tests/unit/tasks/mirror/test_get_floor.py`
 - `tests/unit/tasks/base/test_enkephalin_exchange.py`（两个兑换开关与迁移）
+- `tests/unit/tasks/test_flow_speedups.py`（饰品升两级即退、寻路确认即点、
+  盲点下一节点与回退、纯P战斗）
 
 ### 本地环境备注
 

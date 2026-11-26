@@ -16,6 +16,43 @@ from tasks.base.retry import retry
 ROAD_COLUMN_GAP = 520
 ROAD_ROW_GAP = 437
 
+# 选中节点后"进入"按钮出现的等待上限：出现即点，不用固定等待
+ENTER_BUTTON_TIMEOUT = 1.5
+# 盲点下一节点（用上一帧的 Bus 位置推算坐标）的验证窗口，短一点以便尽快回退
+BLIND_ENTER_TIMEOUT = 1.0
+
+
+def _road_offset(direction: str) -> tuple[float, float] | None:
+    """方向 -> 下一节点相对 Bus 的偏移（2560×1440 基准：中/下/上）。"""
+    scale = cfg.set_win_size / 1440
+    offset = {
+        "M": (500, 50),
+        "D": (500, 450),
+        "U": (500, -400),
+    }.get(direction)
+    if offset is None:
+        return None
+    return offset[0] * scale, offset[1] * scale
+
+
+def _click_enter_immediately(timeout: float = ENTER_BUTTON_TIMEOUT) -> bool:
+    """盯住"进入"按钮，一出现就点，点不到才等到超时。
+
+    原实现是点完节点后固定 ``sleep(1.25)`` 再点一次"进入"，按钮早出来了也要干等，
+    看起来就是"点确定时犹豫一下"。这里改成有界轮询（每轮取一张新帧，约 4 次/秒）。
+    click_interval 显式压到 0.2 秒：全局 mouse_action_interval 默认 0.5 秒，会把
+    "点完节点立刻点进入"再拖慢四分之一秒。
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        if auto.click_element(
+            "mirror/road_in_mir/enter_assets.png", take_screenshot=True, interval=0.2
+        ):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        sleep(0.02)
+
 
 class MirrorMap:
     def __init__(self, floor=1, hard_mode=False):
@@ -23,6 +60,9 @@ class MirrorMap:
         self.floor_map = []
         self.map = {}
         self.hard_mode = hard_mode
+        # 上一次识别到的 Bus 屏幕坐标。路线在进入本层时就已经规划好，方向是已知的，
+        # 所以后续每一步都可以用这个坐标直接算出下一节点位置，不必每步重新截图找 Bus。
+        self._bus_position = None
 
     def get_next_step(self):
         re_identify = False
@@ -63,39 +103,50 @@ class MirrorMap:
                 auto.key_press("down")
             elif next_step == "M":
                 auto.key_press("right")
-            sleep(1)
-            return _keyboard_enter_succeeded()
+            return _click_enter_immediately(BLIND_ENTER_TIMEOUT)
+
+        # 路线图在进入本层时就已经规划完毕，方向固定；直接沿用上一帧的 Bus 坐标推算下一个
+        # 节点，省掉"每步重新截一张图找 Bus"（打完上一关 / 出商店接 Boss 那一步最明显）。
+        if next_position := self._blind_next_position(next_step):
+            auto.mouse_click(next_position[0], next_position[1])
+            if _click_enter_immediately(BLIND_ENTER_TIMEOUT):
+                return True
+            if not auto.find_element("mirror/road_in_mir/legend_assets.png"):
+                # 画面上已经没有路线图了，说明其实已经进入节点，不必再找 Bus
+                return True
+            log.debug("预判位置没有命中下一节点，回退到实时定位 Bus")
+            self._bus_position = None
 
         if next_position := self._get_next_position(next_step):
             auto.mouse_click(next_position[0], next_position[1])
-            sleep(1.25)
-            if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+            if _click_enter_immediately():
                 return True
         if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
-            sleep(1.25)
-            if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+            if _click_enter_immediately():
                 return True
         return False
 
+    def _blind_next_position(self, direction):
+        """按缓存 Bus 坐标直接算出下一节点位置；没有缓存时返回 None。"""
+        if not self._bus_position:
+            return None
+        offset = _road_offset(direction)
+        if offset is None:
+            return None
+        x = self._bus_position[0] + offset[0]
+        y = self._bus_position[1] + offset[1]
+        if 0 < x < cfg.set_win_size * 16 / 9 and 0 < y < cfg.set_win_size:
+            return [x, y]
+        return None
+
     def _get_next_position(self, direction):
-        scale = cfg.set_win_size / 1440
-        three_roads = [
-            [500 * scale, 50 * scale],
-            [500 * scale, 450 * scale],
-            [500 * scale, -400 * scale],
-        ]
-        if direction == "M":
-            position = 0
-        elif direction == "D":
-            position = 1
-        elif direction == "U":
-            position = 2
+        offset = _road_offset(direction)
+        if offset is None:
+            return None
         for _ in range(3):
             if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
-                return [
-                    bus_position[0] + three_roads[position][0],
-                    bus_position[1] + three_roads[position][1],
-                ]
+                self._bus_position = bus_position
+                return [bus_position[0] + offset[0], bus_position[1] + offset[1]]
             sleep(1)
         return None
 
@@ -106,6 +157,8 @@ class MirrorMap:
         log.debug(f"镜牢地图楼层缓存更新: {self.floor} -> {floor}")
         self.floor = floor
         self.floor_map = []
+        # 换层后地图会重新居中，旧的 Bus 坐标不能再用（否则可能盲点错行）
+        self._bus_position = None
 
 
 def get_node_weight(x, y):
@@ -196,8 +249,7 @@ def search_road_default_distance():
             road = road_list[0]
             if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
                 auto.mouse_click(road[0], road[1])
-                sleep(0.75)
-                if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+                if _click_enter_immediately(0.8):
                     return True
     # 如果中、下两个节点没有权重3的节点，查看所有节点的权重，选择权重最大的节点进入
     if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
@@ -241,8 +293,7 @@ def search_road_default_distance():
         for road in road_list:
             if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
                 auto.mouse_click(road[0], road[1])
-                sleep(0.75)
-                if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+                if _click_enter_immediately(0.8):
                     return True
     return False
 
@@ -268,8 +319,7 @@ def search_road_farthest_distance():
             road[1] += bus_position[1]
             if 0 < road[0] < cfg.set_win_size * 16 / 9 and 0 < road[1] < cfg.set_win_size:
                 auto.mouse_click(road[0], road[1])
-                sleep(0.75)
-                if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+                if _click_enter_immediately(0.8):
                     return True
         auto.mouse_click(bus_position[0], bus_position[1])
         if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
@@ -283,8 +333,7 @@ def search_road_from_road_map(hard_mode=False):
     bus = None
 
     if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
-        sleep(0.75)
-        if auto.click_element("mirror/road_in_mir/enter_assets.png", take_screenshot=True):
+        if _click_enter_immediately(0.8):
             return True, True
 
     if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):

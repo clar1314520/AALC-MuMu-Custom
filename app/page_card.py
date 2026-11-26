@@ -516,6 +516,16 @@ class PageMirror(PageCard):
             QT_TRANSLATE_NOOP("BaseCheckBox", "战斗直到全灭"),
             center=False,
         )
+        self.battle_pure_p = BaseCheckBox(
+            "battle_pure_p",
+            None,
+            QT_TRANSLATE_NOOP("BaseCheckBox", "战斗仅按P（不划技能、不用EGO/防御）"),
+            center=False,
+            tips=QT_TRANSLATE_NOOP(
+                "BaseCheckBox",
+                "勾选后战斗只按 P 和 Enter，完全不划线连技能、不使用EGO技能与全员防御",
+            ),
+        )
         self.mirror_keyboard_navigation = BaseCheckBox(
             "mirror_keyboard_navigation",
             None,
@@ -556,6 +566,7 @@ class PageMirror(PageCard):
         self.vbox_advanced.addWidget(self.re_claim_rewards)
         self.vbox_advanced.addWidget(self.not_skip_whitegossypium)
         self.vbox_advanced.addWidget(self.fight_to_last_man)
+        self.vbox_advanced.addWidget(self.battle_pure_p)
         self.vbox_advanced.addWidget(self.mirror_keyboard_navigation)
         self.vbox_advanced.addWidget(self.mirror_keyboard_simple_pathfinding)
 
@@ -833,6 +844,7 @@ class PageMirror(PageCard):
         self.re_claim_rewards.retranslateUi()
         self.not_skip_whitegossypium.retranslateUi()
         self.fight_to_last_man.retranslateUi()
+        self.battle_pure_p.retranslateUi()
         self.mirror_keyboard_navigation.retranslateUi()
         self.mirror_keyboard_simple_pathfinding.retranslateUi()
         self.add_team_button.setToolTip(self.tr("添加队伍"))

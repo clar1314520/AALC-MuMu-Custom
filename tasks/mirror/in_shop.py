@@ -13,6 +13,43 @@ from tasks.base.retry import retry
 from tasks.mirror import fusion_result, must_be_abandoned, must_purchase
 from utils.image_utils import ImageUtils
 
+# 商店里一件饰品升两级就够了，第三级开始只是白跑一轮识别
+EGO_GIFT_MAX_UPGRADES = 2
+# 点完"升级"后确认框出现的最长等待（出现即点，超时视为这次点击没被游戏接受）
+POWER_UP_CONFIRM_TIMEOUT = 1.0
+# 同一级最多点两次"升级"：升级动画还没放完时第一次点击会被游戏忽略
+POWER_UP_CLICK_ATTEMPTS = 2
+# 确认后等弹窗关闭的最长时间（关掉就立刻点下一级）
+POWER_UP_SETTLE_TIMEOUT = 1.5
+
+
+def _wait_click(target: str, timeout: float, interval: float = 0.05, click_interval: float = 0.15) -> bool:
+    """在 timeout 内盯住 target，出现就点，点不到才等到超时。
+
+    click_interval 显式指定两次点击的最小间隔：全局 mouse_action_interval 默认 0.5 秒，
+    "看到按钮立刻点"会被它多拖半秒。
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        if auto.click_element(target, take_screenshot=True, interval=click_interval):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        sleep(interval)
+
+
+def _wait_gone(target: str, timeout: float, interval: float = 0.05) -> bool:
+    """等 target 从画面上消失（每次都用新帧判断，消失即返回）。"""
+    deadline = time.monotonic() + timeout
+    while True:
+        if time.monotonic() >= deadline:
+            return False
+        if auto.take_screenshot() is None:
+            continue
+        if not auto.find_element(target):
+            return True
+        sleep(interval)
+
 
 class Shop:
     def __init__(self, team_setting: TeamSetting):
@@ -71,32 +108,44 @@ class Shop:
     class RestartGame(Exception):
         pass
 
-    def ego_gift_to_power_up(self):
-        loop_count = 30
+    def ego_gift_to_power_up(self, max_upgrades: int = EGO_GIFT_MAX_UPGRADES) -> bool:
+        """对当前选中的饰品连续升级，最多 ``max_upgrades`` 次（默认两次）。
+
+        原实现每升一级固定 ``sleep(3)``，一件饰品光等待就是 6 秒；升满两级后还会再去点
+        第三次。现在：图已在手边就直接点"升级"（不再多一次 mouse_to_blank），确认框出现
+        即点，确认框一消失就点下一级，满两次立刻退出。每一级最多点两次"升级"，避免升级
+        动画没放完时第一次点击被游戏忽略。
+        """
         auto.model = "clam"
-        while True:
+        upgrades = 0
+        while upgrades < max_upgrades:
             # 自动截图
             if auto.take_screenshot() is None:
                 continue
-            auto.mouse_to_blank()
-            if auto.click_element("mirror/shop/power_up_assets.png"):
-                auto.mouse_to_blank()
-                sleep(0.5)
-                if auto.click_element("mirror/shop/power_up_confirm_assets.png", take_screenshot=True) is False:
+            confirmed = False
+            for _ in range(POWER_UP_CLICK_ATTEMPTS):
+                if not auto.click_element("mirror/shop/power_up_assets.png", interval=0.15):
+                    log.debug(f"未找到升级按钮，结束该饰品升级（本次已升 {upgrades} 级）")
                     return True
-                sleep(3)
-                if retry() is False:
+                if _wait_click("mirror/shop/power_up_confirm_assets.png", POWER_UP_CONFIRM_TIMEOUT):
+                    confirmed = True
+                    break
+            if not confirmed:
+                log.debug("升级确认框始终未出现，该饰品无法继续升级")
+                return True
+            upgrades += 1
+            log.debug(f"饰品升级 {upgrades}/{max_upgrades}")
+            if upgrades < max_upgrades:
+                if not _wait_gone("mirror/shop/power_up_confirm_assets.png", POWER_UP_SETTLE_TIMEOUT):
+                    log.debug("升级确认框未在预期时间内关闭，结束该饰品升级")
+                    break
+                # 刚轮询过画面，允许复用这一帧做网络异常检查，省一次截图
+                if retry(reuse_frame_within=0.2) is False:
                     raise self.RestartGame()
-            if auto.find_element("mirror/shop/power_up_confirm_assets.png"):
-                return False
-            loop_count -= 1
-            if loop_count < 20:
-                auto.model = "normal"
-            if loop_count < 10:
-                auto.model = "aggressive"
-            if loop_count < 0:
-                log.error("无法升级ego饰品")
-                break
+            else:
+                # 最后一级也把确认框收掉，避免下一件饰品点到弹窗上
+                _wait_gone("mirror/shop/power_up_confirm_assets.png", 0.8)
+        return True
 
     def buy_gifts(self):
         def sort_points(points, complete=0, threshold=40):

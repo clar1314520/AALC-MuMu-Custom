@@ -343,6 +343,16 @@ Right-click to set as permanent</translation>
     </message>
     <message>
         <location filename="../app/page_card.py" line="498"/>
+        <source>战斗仅按P（不划技能、不用EGO/防御）</source>
+        <translation>Battle with P only (no skill chaining, no EGO/guard)</translation>
+    </message>
+    <message>
+        <location filename="../app/page_card.py" line="505"/>
+        <source>勾选后战斗只按 P 和 Enter，完全不划线连技能、不使用EGO技能与全员防御</source>
+        <translation>When checked, battles only press P and Enter: no skill chaining, no EGO skills, no all-guard</translation>
+    </message>
+    <message>
+        <location filename="../app/page_card.py" line="498"/>
         <source>使用键盘进行镜牢寻路</source>
         <translation>Mirror Dungeon Pathfinding using the Keyboard</translation>
     </message>
