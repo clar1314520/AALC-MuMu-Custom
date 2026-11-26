@@ -131,6 +131,23 @@ Drive 图标仍然可见，又点回 Drive，形成死循环。两个分支都�
 冲突风险：中。`automation.py` 的 `find_image_element` / `find_language_text` 是上游
 高频改动点，新增参数都放在参数表末尾，合并时注意保留。
 
+### perf(mirror) `77df7d1` — 饰品选择合并 OCR + 奖励卡空转跳过匹配
+
+**饰品选择（acquire_ego_gift）**：原先每张卡各 OCR 两次（白棉花 + 已持有），
+3 张卡就是 6 次整卡 OCR，每次 1.5~3s，日志实测这一页光识别就 14s。改成：
+一次 OCR 覆盖三张卡并集 → 按横坐标归属到各卡 → 两项检查复用同一份结果；
+"Select 0/1" 原先用两组关键词各识别一遍，改为识别一次。
+
+**奖励卡（get_reward_card）**：领取后要等游戏自己的过场（实测约 2.6s，期间
+`acquire_ego_gift_card` 稳定 0.56 分，然后一帧黑屏到 0.98，说明是动画而不是识别失败）。
+这段等待无法消除，但空转轮次原先每轮要做 13 次模板匹配（0.34s），现在用缩略图
+指纹判断"画面没变"就直接跳过整轮匹配（保存 5s 重试计时仍然生效）。
+
+### feat(tools) `3ddcf6b` — 独立模板替换小工具
+
+`tools/template_tool.py`：列出模板与内容尺寸、从模拟器抓帧、框选替换、
+自动按 2560x1440 黑底规范生成、替换前备份。零合并冲突。
+
 ### fix(enkephalin) — 兑换开关拆分 + 修复空跑换饼
 
 - `module/config/config_typing.py` / `assets/config/config.example.yaml`
