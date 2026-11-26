@@ -489,8 +489,11 @@ class ConfigModel(BaseModel):
     Dr_Grandet_mode: bool
     """葛朗台模式"""
 
-    skip_enkephalin: bool
-    """跳过换体"""
+    skip_lunacy_exchange: bool
+    """禁止狂气换体"""
+
+    skip_stamina_exchange: bool
+    """禁止体力换饼"""
 
     mirror: bool
     """是否进行自动镜牢"""

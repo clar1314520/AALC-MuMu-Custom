@@ -188,6 +188,15 @@ class Config(metaclass=SingletonMeta):
             loaded_config.setdefault("claim_mission_rewards", prize_mode in (0, 1))
             loaded_config.setdefault("claim_battle_pass_rewards", False)
 
+        if saved_version < 1795737600:
+            # 旧的 skip_enkephalin 语义含糊（勾选后仍会狂气换体），拆成两个互不干扰的开关：
+            # 旧值只覆盖「体力换饼」，因此按此迁移；狂气换体保持默认不禁止。
+            legacy_skip = loaded_config.pop("skip_enkephalin", None)
+            if legacy_skip is not None:
+                loaded_config.setdefault("skip_stamina_exchange", bool(legacy_skip))
+            loaded_config.setdefault("skip_lunacy_exchange", False)
+            loaded_config.setdefault("skip_stamina_exchange", False)
+
         log.info("配置升级完成")
 
     def _load_version(self, version_path: str) -> str:
