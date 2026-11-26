@@ -17,7 +17,7 @@ build
 dist
 dist_new
 dist_v3
-build_dist_new
+build_dist_*
 dist_release
 *.pyc
 *.pyd
