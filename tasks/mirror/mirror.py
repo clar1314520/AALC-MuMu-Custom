@@ -1480,7 +1480,9 @@ class Mirror:
 
     def acquire_ego_gift(self, type: int = 1):
         my_scale = cfg.set_win_size / 1440
+        loop_count = 60
         auto.model = "clam"
+        perf.reset()  # 只统计这一页，避免带上主循环的耗时
         auto.mouse_to_blank()
         if type == 2:
             pos = auto.find_element("mirror/road_in_mir/acquire_ego_gift_refuse_assets.png")
@@ -1494,6 +1496,12 @@ class Mirror:
                 return False
             return
         while True:
+            loop_count -= 1
+            if loop_count < 0:
+                # 原先这里没有次数上限：只要处理逻辑里抛一次异常，就会被 except 吞掉
+                # 再 continue，永远出不去。加上上限至少能报错退出、不静默空转。
+                log.error("饰品选择页处理次数超限，放弃本页")
+                return False
             if auto.take_screenshot() is None:
                 continue
 
@@ -1504,13 +1512,25 @@ class Mirror:
                     "mirror/road_in_mir/acquire_ego_gift_card.png",
                     find_type="image_with_multiple_targets",
                 )
-                # 每张饰品卡的识别区域（卡框中心 → 卡片范围）
+                # 每张饰品卡的识别区域（卡框中心 → 卡片范围），只用于体系图标匹配
                 card_bboxes = [
                     (
                         button[0] - 50 * my_scale,
                         button[1] - 300 * my_scale,
                         button[0] + 450 * my_scale,
                         button[1] + 350 * my_scale,
+                    )
+                    for button in acquire_card
+                ]
+                # 名称带：从卡片顶部到图标上方，覆盖左上角 "Owned" 徽章与饰品名两行字。
+                # "白棉花"/"已持有"都只出现在这两行里，下方那段效果描述完全不必送 OCR——
+                # 原来整张卡（含 10 行描述）一起识别，是这一页最大的时间开销。
+                title_bboxes = [
+                    (
+                        button[0] - 50 * my_scale,
+                        button[1] - 310 * my_scale,
+                        button[0] + 450 * my_scale,
+                        button[1] - 100 * my_scale,
                     )
                     for button in acquire_card
                 ]
@@ -1533,10 +1553,11 @@ class Mirror:
                         return False
                     return
 
-                # 一次 OCR 覆盖所有饰品卡，再按横坐标归属到各卡。
-                # 原先每张卡要各识别两次（白棉花 + 已持有），3 张卡就是 6 次整卡 OCR，
-                # 单次约 1.4 秒，实测这一页光识别就要十几秒。
-                card_texts = auto.ocr_text_groups(card_bboxes) if card_bboxes else []
+                # 只 OCR 名称带（饰品名 + "Owned" 徽章），一段效果描述都不送进识别。
+                # 实测整卡 OCR 单次约 2.5 秒（描述占了绝大多数文字行），只认两行字后
+                # 同一页的识别耗时降到原来的三分之一左右。
+                card_texts = auto.ocr_text_groups(title_bboxes) if title_bboxes else []
+                log.debug(f"饰品卡名称带识别结果: {card_texts}")
                 my_list = []
                 if len(acquire_card) == 2:
                     gift_candidates = []
@@ -1548,6 +1569,7 @@ class Mirror:
                         is_owned = bool(auto.match_language_text("已持有", "Owned", card_texts[index]))
                         gift_candidates.append((is_owned, button))
 
+                    log.info(perf.report_and_reset("饰品选择页(双卡)"))
                     if gift_candidates:
                         gift_candidates.sort(key=lambda gift: gift[0])
                         button = gift_candidates[0][1]
@@ -1561,6 +1583,7 @@ class Mirror:
                             return False
                         return
                 elif len(acquire_card) == 1:
+                    log.info(perf.report_and_reset("饰品选择页(单卡)"))
                     for index, button in enumerate(acquire_card):
                         if not cfg.not_skip_whitegossypium and auto.match_language_text(
                             "白棉花", ["white", "gossypium"], card_texts[index]
@@ -1625,7 +1648,7 @@ class Mirror:
                     if owned_gifts:
                         log.debug(f"检测到{owned_gifts}个已持有EGO饰品，已降低选择优先级")
                 # 耗时分布：识别饰品名与"已持有"只做一次 OCR，其余是模板匹配
-                log.debug(perf.report_and_reset("饰品选择页"))
+                log.debug(perf.format("饰品选择页-卡片识别完成"))
                 select_bbox = ImageUtils.get_bbox(ImageUtils.load_image("mirror/road_in_mir/ego_gift_get_bbox.png"))
                 if select_bbox:
                     select_bbox = (
@@ -1637,6 +1660,7 @@ class Mirror:
                 # "Select 0/1" 只识别一次：原先先后用两组关键词各 OCR 一遍同一块区域
                 select_texts = auto.ocr_text_groups([select_bbox])[0] if select_bbox else []
                 select_text = "".join(select_texts)
+                log.info(perf.report_and_reset("饰品选择页"))
                 if any(token in select_text for token in ("0/2", "02", "2/2", "22", "/2")):
                     for gift in my_list[:2]:
                         auto.mouse_click(gift[0], gift[1])

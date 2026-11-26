@@ -75,6 +75,36 @@ def _try_finish_single_gift() -> bool:
     return True
 
 
+def _select_reward_card(reward_card: list[str]) -> bool:
+    """按优先度点一张奖励卡。
+
+    只做模板匹配（图标模板，clam 模式只搜原位 ±30px），不认任何文字：
+    奖励卡上唯一的区别就是那个图标，罗马数字/描述文字都不影响选哪张。
+    """
+    for card in reward_card:
+        if position := auto.find_element(f"mirror/get_reward_card/{card}.png"):
+            auto.mouse_click(position[0], position[1])
+            log.debug(f"奖励卡：选择 {card}")
+            return True
+    return False
+
+
+def _confirm_reward_card(timeout: float = 1.5) -> bool:
+    """选完卡后盯 Confirm，出现即点（不再固定等一轮循环）。"""
+    deadline = monotonic() + timeout
+    while True:
+        if auto.click_element(
+            "mirror/get_reward_card/get_reward_card_confirm_assets.png",
+            threshold=0.75,
+            model="clam",
+            take_screenshot=True,
+            interval=0.2,
+        ):
+            return True
+        if monotonic() >= deadline:
+            return False
+
+
 @begin_and_finish_time_log(task_name="镜牢获取奖励卡", calculate_time=False)
 # 获取奖励卡
 def get_reward_card(model=0):
@@ -85,6 +115,25 @@ def get_reward_card(model=0):
     reward_card = reward_card_model[model]
     last_signature = 0
     perf.reset()  # 只统计本页面，避免带上上一页的耗时
+
+    def _finish(result: bool = True) -> bool:
+        log.info(perf.report_and_reset("楼层奖励卡(轮询)"))
+        return result
+
+    # 快路径：这一页要做的只有"选一张卡 + 点 Confirm"，两步都不需要识别任何文字。
+    # 原来每次都要回主循环（截图节流 + retry + 十几次匹配）再判断一次，一页下来要好几秒。
+    if auto.take_screenshot() is not None:
+        # 单饰品直给页（打完特殊关卡）：没有可挑的东西，点确认走人，连奖励卡模板都不匹配
+        if _try_finish_single_gift():
+            log.info(perf.report_and_reset("楼层奖励卡(单饰品)"))
+            return True
+        if _select_reward_card(reward_card):
+            if _confirm_reward_card():
+                log.info(perf.report_and_reset("楼层奖励卡"))
+                return True
+            log.debug("奖励卡确认按钮未出现，回退到轮询流程")
+            state = "select_reward"
+
     while True:
         # 自动截图
         if auto.take_screenshot() is None:
@@ -101,18 +150,18 @@ def get_reward_card(model=0):
             continue
         last_signature = signature
         auto.mouse_to_blank()
-        # 单饰品直给页最先判：命中就确认走人，不必进后面的奖励卡匹配。
-        # 只在选择态检查（点击过奖励卡之后就不会再出现单饰品页），省掉后续轮次的一次匹配。
-        if state == "select_reward" and _try_finish_single_gift():
-            return True
+        # 单饰品直给页只在"确认完奖励卡之后"才出现；选择阶段就查等于每轮多跑一次
+        # 全屏多目标匹配（约 0.1~0.3 秒），是这一页最没必要的开销。
+        if state != "select_reward" and _try_finish_single_gift():
+            return _finish()
         if auto.find_element("mirror/road_in_mir/legend_assets.png"):
-            return True
+            return _finish()
         if auto.click_element(EGO_GIFT_CONFIRM, model="clam"):
             log.debug("奖励卡领取后识别到EGO确认，领取流程结束")
-            return True
+            return _finish()
         if auto.find_element(EGO_GIFT_CARD_MARKER):
             log.debug("奖励卡领取后进入饰品选择，交回镜牢主循环处理")
-            return True
+            return _finish()
         if auto.click_element("mirror/get_reward_card/continue_choosing_assets.png", model="clam"):
             state = "select_reward"
             continue
@@ -153,9 +202,9 @@ def get_reward_card(model=0):
                 state = "claim_reward"
                 continue
         # 走到这里说明本轮没有任何点击，可以复用循环顶部那一帧
-        log.debug(perf.report_and_reset("获取奖励卡页"))
+        log.debug(perf.format("获取奖励卡页-本轮空转"))
         if retry(reuse_frame_within=0.2) is False:
-            return False
+            return _finish(False)
         loop_count -= 1
         if loop_count < 20:
             auto.model = "normal"
@@ -163,4 +212,4 @@ def get_reward_card(model=0):
             auto.model = "aggressive"
         if loop_count < 0:
             log.error("无法获取奖励卡")
-            return False
+            return _finish(False)

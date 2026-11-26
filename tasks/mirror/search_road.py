@@ -63,6 +63,9 @@ class MirrorMap:
         # 上一次识别到的 Bus 屏幕坐标。路线在进入本层时就已经规划好，方向是已知的，
         # 所以后续每一步都可以用这个坐标直接算出下一节点位置，不必每步重新截图找 Bus。
         self._bus_position = None
+        # 盲点命中统计：命中率低说明地图没有把 Bus 居中对齐，该回退到实时定位
+        self._blind_hits = 0
+        self._blind_misses = 0
 
     def get_next_step(self):
         re_identify = False
@@ -110,11 +113,22 @@ class MirrorMap:
         if next_position := self._blind_next_position(next_step):
             auto.mouse_click(next_position[0], next_position[1])
             if _click_enter_immediately(BLIND_ENTER_TIMEOUT):
+                self._blind_hits += 1
+                log.info(
+                    f"盲点命中下一节点 {next_step}@({int(next_position[0])},{int(next_position[1])})"
+                    f" 命中率 {self._blind_hits}/{self._blind_hits + self._blind_misses}"
+                )
                 return True
             if not auto.find_element("mirror/road_in_mir/legend_assets.png"):
                 # 画面上已经没有路线图了，说明其实已经进入节点，不必再找 Bus
+                self._blind_hits += 1
+                log.info(f"盲点后画面已进入节点，命中率 {self._blind_hits}/{self._blind_hits + self._blind_misses}")
                 return True
-            log.debug("预判位置没有命中下一节点，回退到实时定位 Bus")
+            self._blind_misses += 1
+            log.info(
+                f"盲点未命中 {next_step}@({int(next_position[0])},{int(next_position[1])})，回退实时定位 Bus"
+                f" 命中率 {self._blind_hits}/{self._blind_hits + self._blind_misses}"
+            )
             self._bus_position = None
 
         if next_position := self._get_next_position(next_step):
@@ -155,6 +169,10 @@ class MirrorMap:
         if self.floor == floor and not reset:
             return
         log.debug(f"镜牢地图楼层缓存更新: {self.floor} -> {floor}")
+        if self._blind_hits or self._blind_misses:
+            log.info(f"上一张图盲点命中率 {self._blind_hits}/{self._blind_hits + self._blind_misses}")
+        self._blind_hits = 0
+        self._blind_misses = 0
         self.floor = floor
         self.floor_map = []
         # 换层后地图会重新居中，旧的 Bus 坐标不能再用（否则可能盲点错行）

@@ -15,7 +15,7 @@ from PIL.Image import Image
 
 from utils.image_utils import ImageUtils
 from utils.path_manager import path_manager
-from utils.perf import STAGE_MATCH, STAGE_OCR, STAGE_SCREENSHOT, perf
+from utils.perf import STAGE_ACTION, STAGE_MATCH, STAGE_OCR, STAGE_SCREENSHOT, STAGE_WAIT, perf
 from utils.singletonmeta import SingletonMeta
 
 from ..config import cfg
@@ -313,6 +313,8 @@ class Automation(metaclass=SingletonMeta):
         if self.last_click_time == 0:
             self.last_click_time = time.time()
         wait_time = max(0, interval - (time.time() - self.last_click_time))
+        # 两次点击之间的"冷却"也是实打实的耗时，单独记账才能看出点得慢是卡在识别还是卡在间隔
+        perf.add(STAGE_WAIT, wait_time)
         time.sleep(wait_time)
 
         # 计算传入的位置
@@ -328,6 +330,7 @@ class Automation(metaclass=SingletonMeta):
         }
         # 根据操作类型执行相应的鼠标操作
         if action in action_map:
+            action_start = time.perf_counter()
             if action == "click":
                 self.mouse_click(x, y, times=times)
             elif action == "drag":
@@ -336,6 +339,7 @@ class Automation(metaclass=SingletonMeta):
                 self.mouse_drag_down(x, y)
             elif action == "scroll":
                 self.mouse_scroll()
+            perf.add(STAGE_ACTION, time.perf_counter() - action_start)
             self.last_click_time = time.time()
         else:
             # 如果操作类型未知，抛出异常
@@ -377,6 +381,8 @@ class Automation(metaclass=SingletonMeta):
                         screenshot_interval_time - (time.time() - self.last_screenshot_time),
                         0,
                     )
+                    # 截图节流的白等要算进"等待"，否则看不出这一页到底是在等帧还是在算
+                    perf.add(STAGE_WAIT, wait_time)
                     time.sleep(wait_time)
 
                 with self._screenshot_lock:
@@ -492,6 +498,7 @@ class Automation(metaclass=SingletonMeta):
                 raise ValueError("错误的类型")
 
             if i < max_retries - 1:
+                perf.add(STAGE_WAIT, 1)
                 time.sleep(1)  # 在重试前等待一定时间
         return None
 

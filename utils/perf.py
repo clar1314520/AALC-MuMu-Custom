@@ -19,6 +19,16 @@ from typing import Iterator
 STAGE_SCREENSHOT = "截图"
 STAGE_MATCH = "匹配"
 STAGE_OCR = "OCR"
+STAGE_WAIT = "等待"
+STAGE_ACTION = "点击"
+
+
+def tracked_sleep(seconds: float) -> None:
+    """记录一次固定等待后才 sleep，用于把"内部等待"和匹配/OCR 分开统计。"""
+    if seconds <= 0:
+        return
+    with perf.track(STAGE_WAIT):
+        time.sleep(seconds)
 
 
 class StageTimer:

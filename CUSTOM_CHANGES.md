@@ -236,6 +236,36 @@ uv run --no-sync pyinstaller tools/template_tool.py --onefile --noconfirm --wind
 `in_shop.py` 的 `ego_gift_to_power_up` 是独立函数，冲突时整段替换即可。
 `battle_pure_p` 与 `config.example.yaml` 必须成对增删，否则 `test_config_schema.py` 失败。
 
+### perf(mirror/shop) — 按实测耗时分布砍掉大段 OCR 与固定等待 + 全链路打点
+
+实测（`logs/debugLog.log`，1600×900）：饰品选择页 5.5s（其中 OCR 5.0s/2 次）、
+楼层奖励卡页 1.5~3s（几乎全是轮询空转）、一次商店 52s（含两件饰品的固定 sleep、
+金钱 OCR 1.7s/次、刷新确认误判重试、离开商店多等 2.5s）。
+
+- `utils/perf.py`：新增 `STAGE_WAIT`（截图节流 + 点击间隔 + 固定 sleep）与
+  `STAGE_ACTION`（实际点击耗时），配合原有 截图/匹配/OCR 五项；新增 `tracked_sleep()`。
+- `module/automation/automation.py`：截图节流等待、点击间隔等待、输入调用分别记账。
+- `tasks/mirror/reward_card.py`：新增快路径——进页面直接「找图标选卡 → 盯 Confirm 出现即点」，
+  成功时不再回主循环（原来一页要空转 6~8 轮，每轮一次 retry + 十几次匹配）；
+  单饰品直给页只在"确认完卡之后"检查，不再每轮跑一次全屏多目标匹配。
+- `tasks/mirror/mirror.py`：饰品选择页的 OCR 裁剪从"整张卡（含 10 行效果描述）"
+  改成"卡片顶部名称带（饰品名 + Owned 徽章）"，`白棉花`/`已持有` 判断依据不变；
+  各分支输出 `饰品选择页` 耗时分布；`acquire_ego_gift` 增加 60 次循环上限
+  （原先异常会被 except 吞掉后无限空转）。
+- `tasks/mirror/in_shop.py`
+  - 金钱 OCR 改 `ocr_text_groups(..., fast_ocr=True)`（检测短边 320，原来默认 736 会把
+    一小块区域放大到 1.7 秒）；
+  - 买饰品：`点货架 → 等购买按钮出现（≤1.5s）→ 点购买 → 等获得确认（≤1.5s）`，
+    去掉两处固定 `sleep(1)`；
+  - 关键词刷新：点确认后先等确认框收起再判断是否生效（原来点完 80ms 就回看，必然误判重试）；
+  - 离开商店：确认框等待里加"已回到路线图"判据，省掉超时的 2.5 秒；
+  - 输出 `商店-购买` 耗时分布。
+- `tasks/mirror/search_road.py`：盲点命中率按次打印（`盲点命中/未命中 … 命中率 x/y`），
+  换层时汇总上一张图的命中率。
+
+冲突风险：中。`in_shop.py` 的购买/刷新流程与上游耦合，冲突时按"等按钮出现而不是固定 sleep"
+的原则重写即可；`reward_card.py` 快路径是新增函数，保留上游主体再补两段调用即可。
+
 ### test `8ce623b` — 回归测试（新增文件，无冲突）
 
 - `tests/unit/module/automation/test_screenshot_reuse.py`
@@ -244,6 +274,7 @@ uv run --no-sync pyinstaller tools/template_tool.py --onefile --noconfirm --wind
 - `tests/unit/tasks/base/test_enkephalin_exchange.py`（两个兑换开关与迁移）
 - `tests/unit/tasks/test_flow_speedups.py`（饰品升两级即退、寻路确认即点、
   盲点下一节点与回退、纯P战斗）
+- `tests/unit/tasks/test_page_speedups.py`（奖励卡快路径、饰品页只 OCR 名称带）
 
 ### 本地环境备注
 

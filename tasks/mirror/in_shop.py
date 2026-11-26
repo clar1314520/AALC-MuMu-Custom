@@ -12,6 +12,7 @@ from tasks.base.back_init_menu import back_init_menu
 from tasks.base.retry import retry
 from tasks.mirror import fusion_result, must_be_abandoned, must_purchase
 from utils.image_utils import ImageUtils
+from utils.perf import perf
 
 # 商店里一件饰品升两级就够了，第三级开始只是白跑一轮识别
 EGO_GIFT_MAX_UPGRADES = 2
@@ -47,6 +48,19 @@ def _wait_gone(target: str, timeout: float, interval: float = 0.05) -> bool:
         if auto.take_screenshot() is None:
             continue
         if not auto.find_element(target):
+            return True
+        sleep(interval)
+
+
+def _wait_element(target: str, timeout: float, interval: float = 0.02) -> bool:
+    """等 target 出现（出现即返回 True），用于"点完货架等详情页"这类场景。"""
+    deadline = time.monotonic() + timeout
+    while True:
+        if time.monotonic() >= deadline:
+            return False
+        if auto.take_screenshot() is None:
+            continue
+        if auto.find_element(target):
             return True
         sleep(interval)
 
@@ -280,19 +294,19 @@ class Shop:
                 while system_gift:
                     gift = system_gift.pop(0)
                     auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
-                    sleep(1)
-                    while auto.take_screenshot() is None:
+                    # 详情页的"购买"按钮一出现就往下走：原来是固定 sleep(1) + 一次匹配，
+                    # 按钮早就出来了也要白等一秒，没匹配到还会白跑一轮。
+                    if not _wait_element("mirror/shop/purchase_assets.png", 1.5):
+                        auto.mouse_click_blank(times=3)
                         continue
                     if self.system == "bleed" and not cfg.not_skip_whitegossypium:
                         if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
                             auto.mouse_click_blank(times=2)
-                        sleep(1)
-                    if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
-                        sleep(1)
-                        auto.click_element(
-                            "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
-                            take_screenshot=True,
-                        )
+                            continue
+                    # 上一帧就是刚匹配到购买按钮的那一帧，直接点，不再白等一个截图间隔
+                    if auto.click_element("mirror/shop/purchase_assets.png"):
+                        # 购买后弹"获得饰品"确认框，出现即点
+                        _wait_click("mirror/road_in_mir/ego_gift_get_confirm_assets.png", 1.5)
                         complete_count += 1
                         system_gift = re_sort_points(system_gift)
                         auto.mouse_click_blank(times=3)
@@ -301,7 +315,6 @@ class Shop:
                         if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png",take_screenshot=True):
                             sleep(0.5)
                         auto.mouse_click_blank(times=3)
-                        sleep(1)
 
             if self.second_system and self.second_system_action[1]:
                 if self.second_system_setting == 1 or (self.second_system_setting == 0 and self.fuse_IV is True):
@@ -314,19 +327,15 @@ class Shop:
                     while system_gift:
                         gift = system_gift.pop(0)
                         auto.mouse_action_with_pos((gift[0], gift[1]), offset=True)
-                        sleep(1)
-                        while auto.take_screenshot() is None:
+                        if not _wait_element("mirror/shop/purchase_assets.png", 1.5):
+                            auto.mouse_click_blank(times=3)
                             continue
                         if self.system == "bleed" and not cfg.not_skip_whitegossypium:
                             if auto.find_language_text("白棉花", ["white", "gossypium"], all_text=True):
                                 auto.mouse_click_blank(times=2)
-                            sleep(1)
-                        if auto.click_element("mirror/shop/purchase_assets.png", take_screenshot=True):
-                            sleep(1)
-                            auto.click_element(
-                                "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
-                                take_screenshot=True,
-                            )
+                                continue
+                        if auto.click_element("mirror/shop/purchase_assets.png"):
+                            _wait_click("mirror/road_in_mir/ego_gift_get_confirm_assets.png", 1.5)
                             complete_count += 1
                             system_gift = re_sort_points(system_gift)
                             auto.mouse_click_blank(times=3)
@@ -335,7 +344,6 @@ class Shop:
                             if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png",take_screenshot=True):
                                 sleep(0.5)
                             auto.mouse_click_blank(times=3)
-                            sleep(1)
 
             if retry() is False:
                 raise self.RestartGame()
@@ -347,31 +355,22 @@ class Shop:
             elif keyword_refresh_count < self.max_keyword_refresh and my_remaining_money >= 300:
                 auto.mouse_click_blank(times=3)
                 if auto.click_element("mirror/shop/refresh_keyword_assets.png"):
-                    sleep(1)
-                    auto.click_element(
-                        f"mirror/shop/keyword/keyword_{self.system}.png",
-                        take_screenshot=True,
-                    )
-                    sleep(0.5)
-                    auto.click_element("mirror/shop/refresh_keyword_confirm_assets.png")
-                    for _ in range(3):
-                        if auto.find_element(
-                            "mirror/shop/refresh_keyword_confirm_assets.png",
-                            take_screenshot=True,
-                        ):
-                            log.debug("关键词刷新确认未生效，重试中")
-                            sleep(0.5)
-                            auto.click_element(
-                                f"mirror/shop/keyword/keyword_{self.system}.png",
-                                take_screenshot=True,
-                            )
-                            sleep(0.5)
-                            auto.click_element(
-                                "mirror/shop/refresh_keyword_confirm_assets.png",
-                                take_screenshot=True,
-                            )
-                        else:
+                    # 刷新面板一出现就选关键词、点确认；确认框收起即视为生效。
+                    # 原来是固定 sleep(1)+sleep(0.5)，并且点完确认 80 毫秒就回头看弹窗
+                    # 还在不在（弹窗还没关完），于是每轮都白重试一次。
+                    for attempt in range(3):
+                        if not _wait_element(f"mirror/shop/keyword/keyword_{self.system}.png", 1.5):
                             break
+                        auto.click_element(
+                            f"mirror/shop/keyword/keyword_{self.system}.png",
+                            take_screenshot=True,
+                            interval=0.2,
+                        )
+                        if not _wait_click("mirror/shop/refresh_keyword_confirm_assets.png", 1.2):
+                            break
+                        if _wait_gone("mirror/shop/refresh_keyword_confirm_assets.png", 1.5):
+                            break
+                        log.debug(f"关键词刷新确认未生效，重试中({attempt + 1}/3)")
                     keyword_refresh_count += 1
                     auto.mouse_click_blank()
                     sleep(3)
@@ -393,6 +392,8 @@ class Shop:
                     continue
 
             break
+
+        log.info(perf.report_and_reset("商店-购买"))
 
     def fuse_useless_gifts_aggressive(self):
         """合成无用饰品_激进版"""
@@ -1390,6 +1391,10 @@ class Shop:
             ):
                 log.debug("已确认离开商店")
                 return True
+            if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+                # 已经回到路线图：说明商店关掉了，不用再等确认框
+                log.debug("已回到路线图，商店已关闭")
+                return True
         log.debug(f"等待离开确认框超时({timeout}s)，交回主循环处理")
         return False
 
@@ -1400,6 +1405,7 @@ class Shop:
         fuse = False
         enhance = False
         skill = False
+        perf.reset()  # 每次进商店重新统计，避免带上道中的耗时
         try:
             while True:
                 # 忽略楼层商店的情况
@@ -1552,7 +1558,7 @@ class Shop:
                 except AttributeError:
                     resampling = Image.BICUBIC
                 enlarged = crop.resize((width * scale, height * scale), resample=resampling)
-                result = ocr.run(enlarged)
+                result = ocr.run_small(enlarged)
                 return list(result.txts or [])
             except Exception:
                 log.debug("OCR 放大裁剪识别失败", exc_info=True)
@@ -1567,7 +1573,9 @@ class Shop:
                 money_bbox = ImageUtils.get_bbox(ImageUtils.load_image("mirror/shop/my_money_heal_bbox.png"))
             else:
                 money_bbox = ImageUtils.get_bbox(ImageUtils.load_image("mirror/shop/my_money_bbox.png"))
-            my_money = auto.get_text_from_screenshot(money_bbox)
+            # 金钱是界面上的大号数字：用 fast_ocr（检测短边 320）。
+            # 默认 run() 会把这一小块放大到短边 736，实测单次要 1.7 秒。
+            my_money = auto.ocr_text_groups([money_bbox], fast_ocr=True)[0] if money_bbox else []
             parsed_money = _extract_money_from_ocr_texts(my_money)
             if parsed_money is None:
                 scaled_money = _retry_money_ocr_with_scaled_crop(money_bbox, scale=2)
