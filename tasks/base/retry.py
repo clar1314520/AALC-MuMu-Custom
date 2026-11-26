@@ -152,10 +152,12 @@ def check_times(start_time, timeout=None, logs=True):
         return False
 
 
-def retry():
+def retry(reuse_frame_within: float = 0.0):
     """重试连接。
 
     为保证稳定性，retry 内循环始终刷新截图，避免复用旧帧导致误判。
+    reuse_frame_within 供热循环调用方使用：调用方刚刚截过图且期间没有任何输入操作时，
+    允许复用该帧（秒），省掉一次被 screenshot_interval 节流掉的重复截图。
     """
     start_time = time.time()
     is_windows = not cfg.config.simulator
@@ -173,7 +175,7 @@ def retry():
             start_time = max(start_time, auto.get_restore_time())
         if check_times(start_time):
             return False
-        if auto.take_screenshot() is None:
+        if auto.take_screenshot(max_age=reuse_frame_within) is None:
             continue
         if auto.find_element("base/connecting_assets.png"):
             continue
