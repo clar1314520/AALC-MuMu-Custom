@@ -342,14 +342,31 @@ class Automation(metaclass=SingletonMeta):
 
         return True
 
-    def take_screenshot(self, gray: bool = True) -> Image | None:
+    def take_screenshot(self, gray: bool = True, max_age: float = 0.0) -> Image | None:
         """
         截取当前屏幕并返回图像对象。
         Args:
             gray (bool): 是否将图像转换为灰度图，默认为True。
+            max_age (float): 允许复用最近一帧的最大年龄（秒），默认 0 表示总是重新截图。
+                仅在调用方确认这一小段时间内没有任何输入操作时使用：同一画面重复调用
+                截图会被 screenshot_interval 节流，白白多等一个间隔。
         Returns:
             Image: 截取当前屏幕的图像对象
         """
+        if max_age > 0:
+            with self._screenshot_lock:
+                cached = self._latest_screenshot
+                cached_at = self._latest_screenshot_monotonic
+            # 只在色彩模式一致时复用：调用方要彩色帧但缓存是灰度帧时无法还原颜色
+            if (
+                cached is not None
+                and cached_at > 0
+                and (cached.mode == "L") == gray
+                and time.monotonic() - cached_at <= max_age
+            ):
+                self.screenshot = cached
+                return cached
+
         start_time = time.time()
         screenshot_interval_time = cfg.screenshot_interval if cfg.screenshot_interval else 0.85
         while True:
@@ -511,21 +528,25 @@ class Automation(metaclass=SingletonMeta):
             log.error(f"寻找图片出错:{e}")
             return []
 
-    def find_regions_by_color(self, roi, mask_fn, min_area=300, min_dist=80) -> list | None:
+    def find_regions_by_color(self, roi, mask_fn, min_area=300, min_dist=80, image=None) -> list | None:
         """
         Args:
             roi: (x1, y1, x2, y2) 1440 高度基准坐标，内部按实际截图高度自动缩放
             mask_fn: callable(ROI的RGB ndarray) -> uint8 掩码(0/255)
             min_area/min_dist: 透传 ImageUtils.match_color_regions
+            image: 复用调用方已取到的彩色截图数组；为 None 时自行截图（并复用旧行为）
 
         Returns:
             list[(cx, cy, area)]: 颜色区域质心与面积；无匹配返回 []，匹配出错返回 None
         """
-        while self.take_screenshot(gray=False) is None:
-            continue
-        color_image = np.array(self.screenshot)
-        if self.screenshot.mode != "L":
-            self.screenshot = self.screenshot.convert("L")
+        if image is None:
+            while self.take_screenshot(gray=False) is None:
+                continue
+            color_image = np.array(self.screenshot)
+            if self.screenshot.mode != "L":
+                self.screenshot = self.screenshot.convert("L")
+        else:
+            color_image = image
         regions = ImageUtils.match_color_regions(
             color_image, mask_fn, roi=roi, min_area=min_area, min_dist=min_dist
         )
