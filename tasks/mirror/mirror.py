@@ -45,6 +45,20 @@ def to_log_with_time(msg, elapsed_time):
     log.info(f"{msg} 总耗时:{time_string}")
 
 
+# 镜牢入口按钮。新版游戏的入口改成两行小字（Mirror / Dungeons），原来那行大字的
+# 模板在 1600x900 下只有 0.5 左右的相似度，永远判定不到，于是 road_to_mir 会退回
+# “点 Window 图标”的兜底分支，和 Drive 界面来回跳，一直进不去镜牢。
+MIRROR_ENTRY_ASSETS = (
+    "home/mirror_dungeons_assets.png",  # 旧界面：一行大字
+    "home/mirror_dungeons_v2_assets.png",  # 新界面：两行小字
+)
+
+
+def mirror_entry_visible() -> bool:
+    """镜牢入口按钮是否可见（兼容新旧两种界面）。"""
+    return any(auto.find_element(target) for target in MIRROR_ENTRY_ASSETS)
+
+
 class Mirror:
     def __init__(self, team_setting: TeamSetting, team_num: int):
         team_setting = team_setting.model_copy(deep=True)  # 避免修改原始配置
@@ -144,6 +158,12 @@ class Mirror:
         auto.model = "clam"
         self.first_battle = True
         while True:
+            # 兜底退出：两个界面互相来回点时分支里都是 continue，会跳过循环末尾的
+            # loop_count 判定，所以这里必须再查一次，否则永远退不出去。
+            if loop_count < 0:
+                log.error("无法进入镜牢,尝试回到初始界面")
+                back_init_menu()
+                break
             # 自动截图
             if auto.take_screenshot() is None:
                 continue
@@ -184,14 +204,13 @@ class Mirror:
             if auto.click_element("mirror/road_to_mir/enter_assets.png"):
                 sleep(0.5)
                 continue
-            if auto.click_element("home/mirror_dungeons_assets.png"):
+            if any(auto.click_element(target) for target in MIRROR_ENTRY_ASSETS):
                 continue
-            if auto.find_element("home/inferno_bus_assets.png") and not auto.find_element(
-                "home/mirror_dungeons_assets.png"
-            ):
+            if auto.find_element("home/inferno_bus_assets.png") and not mirror_entry_visible():
                 sleep(1)
-                if not auto.find_element("home/mirror_dungeons_assets.png"):
+                if not mirror_entry_visible():
                     auto.click_element("home/window_assets.png")
+                    loop_count -= 1  # 空转也计入次数，避免在这两个界面无限来回点
                     continue
             if auto.find_element("base/renew_confirm_assets.png", model="clam") and auto.find_element(
                 "home/drive_assets.png", model="normal"
@@ -204,6 +223,7 @@ class Mirror:
             #     continue
             if auto.click_element("home/drive_assets.png", model="normal"):
                 sleep(0.5)
+                loop_count -= 1  # 同上：连续点 Drive 而不前进时也要能触发兜底退出
                 continue
             if auto.find_element("mirror/road_to_mir/select_team_stars_assets.png"):
                 break
