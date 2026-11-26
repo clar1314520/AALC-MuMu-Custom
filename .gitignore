@@ -15,6 +15,8 @@ GEMINI.md
 # 构建文件
 build
 dist
+dist_new
+build_dist_new
 dist_release
 *.pyc
 *.pyd
