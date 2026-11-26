@@ -107,6 +107,24 @@
 - 仅跑测试的最小依赖：`pytest pydantic ruamel.yaml colorlog concurrent-log-handler PySide6`。
 - `tests` 不依赖游戏窗口；`QT_QPA_PLATFORM=offscreen` 可避免弹窗。
 
+### build `scripts/build_custom.py`（新增文件，无冲突）
+
+本地定制版打包脚本，替代官方 `scripts/build.py`：
+
+- 不压缩 7z，直接产出可运行的 `dist/AALC/` 目录；
+- **不构建 `AALC Updater.exe`**：没有它，误点「检查更新」不会把定制版覆盖掉；
+- 只从源码目录向产物目录单向复制，绝不回写/删除源码目录的 `config.yaml` 与 `assets`；
+- `config.yaml` / `theme_pack_list.yaml` 只在产物里不存在时才复制，重复打包不会覆盖
+  你在产物目录里改过的配置（需要强制同步加 `--sync-config`）。
+
+```bash
+uv run --no-sync python scripts/build_custom.py               # 完整构建（约 2~3 分钟）
+uv run --no-sync python scripts/build_custom.py --post-only   # 只重做后处理
+```
+
+产物是 **onedir**（`main.spec` 里 `EXE(exclude_binaries=True)` + `COLLECT`），
+`AALC.exe` 必须和 `_internal/` 放在同一目录，不能单独拷走。
+
 ## 跟随上游更新
 
 ```bash
