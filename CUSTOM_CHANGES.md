@@ -1,0 +1,113 @@
+# 自定义分支改动记录
+
+本文件记录本仓库相对上游的所有本地改动，便于跟随上游更新时逐条确认。
+上游仓库：`https://github.com/KIYI671/AhabAssistantLimbusCompany`
+
+## 分支约定
+
+| 分支 / tag | 用途 |
+| --- | --- |
+| `upstream-V1.6.2` | 本地抓取的上游发布 tag（当前基线，未改动） |
+| `vendor/snapshot` | 最初到手时的 zip 快照（内容与 V1.6.2 一致，仅换行差异），仅作存档 |
+| `custom/main` | 长期维护分支，所有本地改动都在这里 |
+
+原则：
+
+1. 一个主题一个 commit，commit message 用 `perf:` / `fix:` / `test:` / `docs:` 前缀；
+2. 新逻辑尽量放新文件（`tests/unit/...` 等），减少与上游同文件冲突的面积；
+3. 不对整文件执行 `ruff format`，避免无意义的重排造成大面积冲突；
+4. 不使用程序内置的「检查更新」——`updater.py` 会 `shutil.rmtree("./assets/images")`
+   并覆盖程序文件，会直接抹掉本地改动。更新一律走 git。
+
+## 改动清单
+
+### perf(automation) `0ae466a` — 截图复用基础设施
+
+- `module/automation/automation.py`
+  - `take_screenshot(gray=True, max_age=0.0)`：`max_age>0` 且最近一帧年龄不超过该值、
+    色彩模式一致时直接复用，不再触发截图。默认 `0` 保持原行为，全局调用方零影响。
+  - `find_regions_by_color(..., image=None)`：允许传入调用方已取到的彩色帧。
+
+冲突风险：中。上游对 `take_screenshot` 改动较频繁，但本次是纯增量参数 + 方法开头的
+一段独立分支，冲突时保留上游主体、把复用分支重新插入即可。
+
+### perf(retry) `8e12fca` — 可选的复用近期帧
+
+- `tasks/base/retry.py`：`retry(reuse_frame_within=0.0)`，默认行为不变。
+
+冲突风险：低（函数签名 + 一行调用）。
+
+### perf(event) `6323567` — 判定页单帧双路匹配
+
+- `tasks/event/event_handling.py`
+  - 判定流程由"彩色截图 + 再截一次灰度"改为同一帧派生两份灰度图：
+    一份抹掉红色徽章找「极高/高/一般」，一份保留原色找「低/极低」。
+  - `decision_event_handling_ocr` 的整屏 OCR 改为先只识别 `all_sinner_bbox` 区域，
+    未取到等级再回退整屏。
+  - 新增 `get_sinner_bbox()`（带缓存），`black_out_red` 增加越界保护。
+
+冲突风险：中高。这是事件判定的核心函数，上游调整判定策略时会冲突。
+冲突时的判据：**同一帧必须只截一次**，且红色徽章只能在"保留原色"那份里被匹配到。
+
+### perf(mirror) `03e8e32` — 去掉重复截图与无谓固定等待
+
+- `tasks/mirror/select_theme_pack.py`：选包循环内不再二次截图。
+- `tasks/mirror/get_floor.py`：面板展开改为有界轮询（最多 3s，含 0.4s 沉降），
+  每轮只取一张彩色帧，模板匹配用灰度副本、CLEAR 统计用彩色原件。
+- `tasks/mirror/mirror.py`：等待卡包页就绪由 `sleep(2)` 改为有界轮询（最多 3s）；
+  主循环与事件循环的 `retry` 复用近期帧。
+- `tasks/mirror/reward_card.py`：无点击的空转轮次复用循环顶部帧。
+
+有意保留的固定等待：
+
+- `switch_theme_pack_difficulty` 的 `sleep(2)`：徽章先变、卡包列表随后整体重载，
+  只轮询徽章会在列表加载完前返回，后续会读到半加载的列表。
+- `select_theme_pack` 选包成功后的 `sleep(3)` 与刷新后的 `sleep(1)`：紧随其后的
+  点击/OCR 依赖动画播完，且找不到比固定等待更可靠的"已播完"判据。
+
+冲突风险：高（`mirror.py`、`select_theme_pack.py` 是上游迭代最频繁的两个文件）。
+
+### test `8ce623b` — 回归测试（新增文件，无冲突）
+
+- `tests/unit/module/automation/test_screenshot_reuse.py`
+- `tests/unit/tasks/event/test_decision_frame.py`（1600x900 合成画面）
+- `tests/unit/tasks/mirror/test_get_floor.py`
+
+### 本地环境备注
+
+- `uv sync --frozen` 在 Windows 上可能因 uv 缓存损坏报 `WinError 183`，
+  改用 `uv sync --frozen --no-cache` 或 `uv pip install --no-cache` 即可。
+- 仅跑测试的最小依赖：`pytest pydantic ruamel.yaml colorlog concurrent-log-handler PySide6`。
+- `tests` 不依赖游戏窗口；`QT_QPA_PLATFORM=offscreen` 可避免弹窗。
+
+## 跟随上游更新
+
+```bash
+git fetch upstream --tags
+git merge upstream/main          # 或指定发布 tag，例如 git merge V1.7.0
+
+# 合并后用自动检查兜底
+python -m compileall -q module tasks utils tests
+QT_QPA_PLATFORM=offscreen uv run --no-sync pytest -ra
+uv run --no-sync ruff check tasks/mirror tasks/event module/automation
+```
+
+冲突热点（按概率从高到低）：
+
+1. `tasks/mirror/mirror.py`
+2. `tasks/mirror/select_theme_pack.py`
+3. `tasks/event/event_handling.py`
+4. `module/automation/automation.py`
+5. `tasks/mirror/get_floor.py`
+
+处理建议：上述文件冲突时优先采用上游版本，再按本文件的改动清单逐条把本地意图补回去
+（每条的意图和判据都写在上面对应小节），最后用测试与一次完整镜牢跑图确认。
+
+## 手工验收清单
+
+自动测试覆盖不到的部分，跑一局完整镜牢时重点看：
+
+- 卡包页：选中的卡包关键词是否仍符合权重预期，是否出现"unknown"异常增多
+- 判定页：选的罪人是否符合成功率高低，是否点空/点错位置
+- 闸层：日志中「楼层识别结果」是否与实际楼层一致（重点确认没有少数 CLEAR）
+- 日志耗时：`结束执行 选择镜牢主题包 耗时` 应明显低于改动前
