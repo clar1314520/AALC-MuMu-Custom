@@ -165,8 +165,29 @@ class Mirror:
             if self.floor == 1:
                 self.hard_reward_eligible = True
 
+    def _infinity_mirror_off(self) -> bool:
+        """无限镜牢入口旁边那块小区域里有没有 "off" 字样（开关是否关闭）。
+
+        那块区域只有 170x31，用整帧 OCR 引擎识别会被 limit_type=min 放大到短边 736，
+        实测单次 4.2 秒——相当于每轮循环白等四秒，看起来就是"卡在 Drive 界面没反应"。
+        改用小区域快识别后同一块约 0.3 秒。识别失败按"没有 off"处理，与原行为一致。
+        """
+        try:
+            bbox = ImageUtils.get_bbox(
+                ImageUtils.load_image("mirror/road_to_mir/infinity_mirror_bbox.png")
+            )
+            if not bbox:
+                return False
+            roi = (bbox[2] - 70, bbox[1], bbox[2] + 100, bbox[3])  # 临时修复：调整裁切大小
+            texts = auto.ocr_text_groups([roi], fast_ocr=True)[0]
+            return any(token in "".join(texts).lower() for token in ("off", "ff", "of"))
+        except Exception as e:  # noqa: BLE001 - 识别异常不该让整轮任务挂掉
+            log.debug(f"无限镜牢开关识别失败: {e}")
+            return False
+
     def road_to_mir(self):
         loop_count = 30
+        shot_fail = 0
         auto.model = "clam"
         self.first_battle = True
         while True:
@@ -176,9 +197,17 @@ class Mirror:
                 log.error("无法进入镜牢,尝试回到初始界面")
                 back_init_menu()
                 break
-            # 自动截图
+            # 自动截图：连续失败要报出来，否则会静默空转，看起来就像"卡死"
             if auto.take_screenshot() is None:
+                shot_fail += 1
+                if shot_fail == 1 or shot_fail % 10 == 0:
+                    log.warning(f"连续 {shot_fail} 次截图失败，请检查模拟器画面是否正常")
+                if shot_fail > 30:
+                    log.error("连续截图失败，尝试回到初始界面")
+                    back_init_menu()
+                    break
                 continue
+            shot_fail = 0
             auto.mouse_to_blank()
             if retry() is False:
                 return False
@@ -204,15 +233,9 @@ class Mirror:
                 break
             if auto.click_element("mirror/road_to_mir/enter_mirror_assets.png", threshold=0.78):
                 break
-            infinity_bbox = ImageUtils.get_bbox(ImageUtils.load_image("mirror/road_to_mir/infinity_mirror_bbox.png"))
-            infinity_bbox = (
-                infinity_bbox[2] - 70,
-                infinity_bbox[1],
-                infinity_bbox[2] + 100,
-                infinity_bbox[3],
-            )  # 临时修复措施，调整裁切大小
-            if not auto.find_text_element(["off", "ff","of"], infinity_bbox):
-                auto.click_element("mirror/road_to_mir/infinity_mirror_enter_assets.png",take_screenshot=True)
+            # 正常入口已经可见时不用管无限镜牢开关，省掉这次识别
+            if not mirror_entry_visible() and not self._infinity_mirror_off():
+                auto.click_element("mirror/road_to_mir/infinity_mirror_enter_assets.png", take_screenshot=True)
             if auto.click_element("mirror/road_to_mir/enter_assets.png"):
                 sleep(0.5)
                 continue
