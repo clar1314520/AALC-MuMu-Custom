@@ -245,7 +245,8 @@ class Mirror:
             if auto.take_screenshot() is None:
                 continue
 
-            retry()
+            # 刚才那一帧尚未过期且期间无输入操作，允许 retry 复用它，省一次截图节流
+            retry(reuse_frame_within=0.2)
 
             if cfg.floor_3_exit and self.floor >= 4:
                 if auto.click_element("mirror/road_in_mir/towindow&forfeit_confirm_assets.png"):
@@ -286,7 +287,12 @@ class Mirror:
             if auto.find_element("mirror/theme_pack/feature_theme_pack_assets.png"):
                 new_floor = not theme_pack_active or preparing
                 if new_floor:
-                    sleep(2)  # 等待主题包页面加载完成再打开楼层设置
+                    # 有界轮询等待主题包页面就绪（原先固定 sleep(2)）：
+                    # 能匹配到卡包特征说明页面通常已经出来，最多等 3 秒即可继续
+                    wait_deadline = time.monotonic() + 3.0
+                    while not auto.find_element("mirror/theme_pack/theme_pack_setting_assets.png"):
+                        if time.monotonic() >= wait_deadline or auto.take_screenshot() is None:
+                            break
                     previous_floor = self.floor
                     self.floor = get_floor(self.floor, "mirror/theme_pack/theme_pack_setting_assets.png")
                     self.floor_detect_failed = self.floor == 0
@@ -1249,7 +1255,8 @@ class Mirror:
             if auto.take_screenshot() is None:
                 continue
 
-            if retry() is False:
+            # 事件循环里刚截过图且期间无输入操作，允许 retry 复用该帧
+            if retry(reuse_frame_within=0.2) is False:
                 return False
 
             # 如果在战斗中或回到镜牢路线图中，则跳出循环

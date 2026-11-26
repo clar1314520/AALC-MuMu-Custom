@@ -97,7 +97,8 @@ def get_reward_card(model=0):
             if select_reward:
                 state = "claim_reward"
                 continue
-        if retry() is False:
+        # 走到这里说明本轮没有任何点击，可以复用循环顶部那一帧
+        if retry(reuse_frame_within=0.2) is False:
             return False
         loop_count -= 1
         if loop_count < 20:

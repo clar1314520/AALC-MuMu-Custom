@@ -1,3 +1,4 @@
+import time
 from time import sleep
 
 import numpy as np
@@ -10,6 +11,12 @@ FLOOR_BAND_ROI = (760, 495, 1860, 590)
 
 # 1440p ，设置的clear图片，处理后连在一起的红色区域至少包含 300 个像素，认为匹配成功
 FLOOR_CLEAR_MIN_AREA = 300
+
+# 点击设置按钮后等待楼层面板展开的上限（秒）
+FLOOR_PANEL_WAIT_TIMEOUT = 3.0
+
+# 点击设置按钮后的沉降时间：面板淡入可能让 CLEAR 徽章颜色偏暗，过早统计会少数
+FLOOR_PANEL_SETTLE = 0.4
 
 
 def clear_badge_mask(roi_rgb):
@@ -40,13 +47,30 @@ def get_floor(previous_floor=0, setting_assets="mirror/road_in_mir/setting_asset
     setting_button = auto.find_element(setting_assets, take_screenshot=True)
     if setting_button:
         auto.mouse_action_with_pos(setting_button)
-        sleep(1)  # 等待楼层设置面板展开
-        if auto.find_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75, take_screenshot=True):
+        # 面板有淡入动画，过早截图会把 CLEAR 徽章数错，先留一小段沉降再轮询。
+        # 轮询每轮只取一张彩色图：模板匹配用它的灰度副本、CLEAR 统计用它的彩色原件，
+        # 两者来自同一帧，既省掉一次被节流的截图，也不会把两帧状态错配。
+        sleep(FLOOR_PANEL_SETTLE)
+        color_frame = None
+        deadline = time.monotonic() + FLOOR_PANEL_WAIT_TIMEOUT
+        while True:
+            if auto.take_screenshot(gray=False) is None:
+                break
+            frame = np.array(auto.screenshot)
+            auto.screenshot = auto.screenshot.convert("L")
+            if auto.find_element("mirror/road_in_mir/to_window_assets.png", threshold=0.75):
+                color_frame = frame
+                break
+            if time.monotonic() >= deadline:
+                log.debug(f"等待楼层设置面板超时({FLOOR_PANEL_WAIT_TIMEOUT}s)")
+                break
+        if color_frame is not None:
             clear_regions = auto.find_regions_by_color(
                 FLOOR_BAND_ROI,
                 min_area=FLOOR_CLEAR_MIN_AREA,
                 min_dist=80,
                 mask_fn=clear_badge_mask,
+                image=color_frame,
             )
             if clear_regions is not None:
                 current_floor = len(clear_regions) + 1

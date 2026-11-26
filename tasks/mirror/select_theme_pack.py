@@ -26,6 +26,8 @@ def switch_theme_pack_difficulty(hard_mode=False):
     if not auto.click_element(f"mirror/theme_pack/{current}_assets.png"):
         log.info("无法确认当前镜牢主题包难度，继续选择主题包")
         return
+    # 保留固定等待：徽章先变、卡包列表随后整体重载，只轮询徽章会在列表加载完前返回，
+    # 后续选择卡包会读到半加载的列表。该分支仅在难度真正切换时触发（通常每局一次）。
     sleep(2)  # 等待难度切换动画结束及主题包重新加载
     switched = get_theme_pack_difficulty()
     log.info(f"镜牢主题包难度切换{'成功' if switched == target else '失败'}: {current} -> {switched}")
@@ -79,10 +81,10 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
                     return
             weight_list = []
             pack_name = []
+            # 循环顶部已经取过一帧，这里直接复用同一帧，避免多等一个截图间隔
             if all_theme_pack := auto.find_element(
                 "mirror/theme_pack/theme_pack_features.png",
                 find_type="image_with_multiple_targets",
-                take_screenshot=True,
             ):
                 if floor == 5 and cfg.skip_event_pack:
                     all_theme_pack.sort(key=lambda pos: (pos[0], pos[1]))
