@@ -261,14 +261,24 @@
         <translation>Grandet mode</translation>
     </message>
     <message>
-        <location filename="../app/page_card.py" line="369"/>
-        <source>不自动兑换脑啡肽 (?)</source>
-        <translation>Do not automatic exchange enkephalin (?)</translation>
+        <location filename="../app/page_card.py" line="377"/>
+        <source>禁止狂气换体 (?)</source>
+        <translation>Disable lunacy to enkephalin (?)</translation>
     </message>
     <message>
-        <location filename="../app/page_card.py" line="370"/>
-        <source>勾选后除狂气换体以外不执行兑换脑啡肽的操作</source>
-        <translation>After checking, do not perform the operation of exchanging enkephalin except for lunacy to enkephalin</translation>
+        <location filename="../app/page_card.py" line="380"/>
+        <source>勾选后不执行「狂气 → 体力」兑换。与「禁止体力换饼」互不影响，可分别勾选</source>
+        <translation>When checked, lunacy is never exchanged for enkephalin. Independent of the stamina option below; each can be toggled separately</translation>
+    </message>
+    <message>
+        <location filename="../app/page_card.py" line="388"/>
+        <source>禁止体力换饼 (?)</source>
+        <translation>Disable enkephalin to module (?)</translation>
+    </message>
+    <message>
+        <location filename="../app/page_card.py" line="391"/>
+        <source>勾选后不把体力合成脑啡肽模块，日常/刷牢开始前的自动兑换会跳过。与「禁止狂气换体」互不影响</source>
+        <translation>When checked, enkephalin is never converted into modules; the automatic exchange before dailies and Mirror runs is skipped. Independent of the lunacy option above</translation>
     </message>
     <message>
         <location filename="../app/page_card.py" line="421"/>

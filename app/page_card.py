@@ -371,11 +371,25 @@ class PageLunacyToEnkephalin(PageCard):
             center=False,
         )
 
-        self.skip_enkephalin = BaseCheckBox(
-            "skip_enkephalin",
+        self.skip_lunacy_exchange = BaseCheckBox(
+            "skip_lunacy_exchange",
             None,
-            QT_TRANSLATE_NOOP("BaseCheckBox", "不自动兑换脑啡肽 (?)"),
-            tips=QT_TRANSLATE_NOOP("BaseCheckBox", "勾选后除狂气换体以外不执行兑换脑啡肽的操作"),
+            QT_TRANSLATE_NOOP("BaseCheckBox", "禁止狂气换体 (?)"),
+            tips=QT_TRANSLATE_NOOP(
+                "BaseCheckBox",
+                "勾选后不执行「狂气 → 体力」兑换。与「禁止体力换饼」互不影响，可分别勾选",
+            ),
+            center=False,
+        )
+
+        self.skip_stamina_exchange = BaseCheckBox(
+            "skip_stamina_exchange",
+            None,
+            QT_TRANSLATE_NOOP("BaseCheckBox", "禁止体力换饼 (?)"),
+            tips=QT_TRANSLATE_NOOP(
+                "BaseCheckBox",
+                "勾选后不把体力合成脑啡肽模块，日常/刷牢开始前的自动兑换会跳过。与「禁止狂气换体」互不影响",
+            ),
             center=False,
         )
 
@@ -383,12 +397,14 @@ class PageLunacyToEnkephalin(PageCard):
         self.vbox_general.addWidget(self.set_lunacy_to_enkephalin)
 
         self.vbox_advanced.addWidget(self.Dr_Grandet_mode)
-        self.vbox_advanced.addWidget(self.skip_enkephalin)
+        self.vbox_advanced.addWidget(self.skip_lunacy_exchange)
+        self.vbox_advanced.addWidget(self.skip_stamina_exchange)
 
     def retranslateUi(self):
         self.set_lunacy_to_enkephalin.retranslateUi()
         self.Dr_Grandet_mode.retranslateUi()
-        self.skip_enkephalin.retranslateUi()
+        self.skip_lunacy_exchange.retranslateUi()
+        self.skip_stamina_exchange.retranslateUi()
         super().retranslateUi()
 
 
