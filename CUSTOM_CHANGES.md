@@ -162,6 +162,26 @@ Drive 图标仍然可见，又点回 Drive，形成死循环。两个分支都�
 `tools/template_tool.py`：列出模板与内容尺寸、从模拟器抓帧、框选替换、
 自动按 2560x1440 黑底规范生成、替换前备份。零合并冲突。
 
+### build(tools) — 模板替换工具打包成独立 exe
+
+`tools/template_tool.py` 增加了打包后的目录定位：
+
+- 打包后 `__file__` 在 PyInstaller 解包目录里，改用 `sys.executable`（`app_dir()`）
+- 依次尝试：上次选的目录（exe 旁 `template_tool.json`）→ exe 同级 → 上一级 → 上两级 →
+  cwd，以及这些目录下的常见子目录；任何一层有 `assets/images` 就采用
+- 界面顶部显示当前 AALC 目录，并提供「更换 AALC 目录…」按钮（选择会被记住）
+- 全都没命中时弹窗让用户选一次，不会再静默列出空列表
+
+打包命令（单文件，带图标，无控制台）：
+
+```bash
+uv run --no-sync pyinstaller tools/template_tool.py --onefile --noconfirm --windowed \
+  --name "模板替换工具" --icon "<绝对路径>/assets/logo/my_icon_256X256.ico" \
+  --distpath dist_tool --workpath build_tool --specpath build_tool
+```
+
+注意：`--icon` 必须给绝对路径，相对路径会按 `--specpath` 解析导致找不到文件。
+
 ### fix(enkephalin) — 兑换开关拆分 + 修复空跑换饼
 
 - `module/config/config_typing.py` / `assets/config/config.example.yaml`

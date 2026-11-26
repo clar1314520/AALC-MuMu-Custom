@@ -19,6 +19,8 @@ dist_new
 dist_v*
 build_dist_*
 dist_release
+dist_tool
+build_tool
 *.pyc
 *.pyd
 

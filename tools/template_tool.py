@@ -16,15 +16,111 @@ r"""AALC 模板替换小工具（独立运行，不进入主程序、不参与�
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+APP_NAME = "模板替换工具"
+CONFIG_NAME = "template_tool.json"
+
+
+def app_dir() -> Path:
+    """本工具所在的目录。
+
+    打包成 exe（--onefile/--onedir）后 __file__ 指向解包出来的临时目录，
+    必须用 sys.executable；源码直接跑时用仓库根目录。
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[1]
+
+
+def _config_file() -> Path:
+    return app_dir() / CONFIG_NAME
+
+
+def _looks_like_aalc(path: Path) -> bool:
+    try:
+        return (path / "assets" / "images").is_dir()
+    except OSError:
+        return False
+
+
+def _candidates() -> list[Path]:
+    """exe 所在目录、上一级、上两级、当前工作目录，以及它们的常见子目录。"""
+    base = app_dir()
+    anchors = [base, base.parent, base.parent.parent, Path.cwd()]
+    ordered: list[Path] = []
+    for anchor in anchors:
+        ordered.append(anchor)
+        ordered.extend([anchor / "AALC", anchor / "AhabAssistantLimbusCompany-main"])
+        try:
+            ordered.extend(sorted(p for p in anchor.iterdir() if p.is_dir()))
+        except OSError:
+            continue
+
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in ordered:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
+    return unique
+
+
+def _saved_root() -> Path | None:
+    try:
+        data = json.loads(_config_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = data.get("aalc_root")
+    return Path(value) if value else None
+
+
+def save_root(path: Path) -> None:
+    try:
+        _config_file().write_text(
+            json.dumps({"aalc_root": str(path)}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # 写不了配置不影响使用，只是下次还要再选一遍
+
+
+def set_root(path: Path) -> bool:
+    """把工作目录切到某个 AALC 根目录（含 assets/images 的那一层）。"""
+    global ROOT, IMAGES, BACKUP
+
+    path = path.resolve()
+    images = path / "assets" / "images"
+    if not images.is_dir():
+        return False
+    ROOT, IMAGES, BACKUP = path, images, path / "assets" / "images_backup"
+    return True
+
+
+def resolve_root() -> Path | None:
+    """按"上次选过 → exe 同级/上一级/上两级 → 子目录"的顺序找 AALC 目录。"""
+    saved = _saved_root()
+    if saved and _looks_like_aalc(saved):
+        return saved
+    for candidate in _candidates():
+        if _looks_like_aalc(candidate):
+            return candidate
+    return None
+
+
+ROOT = app_dir()
 IMAGES = ROOT / "assets" / "images"
 BACKUP = ROOT / "assets" / "images_backup"
+set_root(resolve_root() or ROOT)  # 自动定位到含 assets/images 的目录
 
 CANVAS = (2560, 1440)  # AALC 的模板统一按 1440 高度绘制
 ADB_CANDIDATES = (
@@ -259,9 +355,36 @@ def main() -> int:
             right.addWidget(self.file_button)
             right.addWidget(self.sync_copies)
 
-            layout = QHBoxLayout(self)
-            layout.addWidget(self.search, 1)
-            layout.addLayout(right, 1)
+            self.root_label = QLabel(f"AALC 目录：{ROOT}")
+            self.root_label.setWordWrap(True)
+            self.root_button = QPushButton("更换 AALC 目录…")
+            self.root_button.clicked.connect(self.choose_root)
+            head = QHBoxLayout()
+            head.addWidget(self.root_label, 1)
+            head.addWidget(self.root_button)
+
+            body = QHBoxLayout()
+            body.addWidget(self.search, 1)
+            body.addLayout(right, 1)
+
+            layout = QVBoxLayout(self)
+            layout.addLayout(head)
+            layout.addLayout(body, 1)
+            self.reload()
+
+        def choose_root(self):
+            path = QFileDialog.getExistingDirectory(
+                self, "选择 AALC 目录（含 assets/images 的那一层）", str(ROOT)
+            )
+            if not path:
+                return
+            if not set_root(Path(path)):
+                QMessageBox.warning(
+                    self, "目录不对", "这个目录里没有 assets/images，请选择 AALC 程序所在的目录。"
+                )
+                return
+            save_root(ROOT)
+            self.root_label.setText(f"AALC 目录：{ROOT}")
             self.reload()
 
         def reload(self):
@@ -340,6 +463,20 @@ def main() -> int:
             self._on_select(self.search.currentItem(), None)
 
     app = QApplication(sys.argv)
+    if not IMAGES.is_dir():
+        QMessageBox.information(
+            None,
+            APP_NAME,
+            "没自动找到 AALC 目录（含 assets/images 的那一层）。\n"
+            "请把本工具放到 AALC.exe 所在目录或它的上一级，或现在手动选一次。",
+        )
+        path = QFileDialog.getExistingDirectory(
+            None, "选择 AALC 目录（含 assets/images 的那一层）"
+        )
+        if not path or not set_root(Path(path)):
+            QMessageBox.critical(None, APP_NAME, "这个目录里没有 assets/images，工具无法工作。")
+            return 1
+        save_root(ROOT)
     window = ToolWindow()
     window.show()
     return app.exec()
