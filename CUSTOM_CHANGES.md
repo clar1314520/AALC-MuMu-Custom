@@ -67,6 +67,30 @@
 
 冲突风险：高（`mirror.py`、`select_theme_pack.py` 是上游迭代最频繁的两个文件）。
 
+### fix(mirror) `70373d6` — 新版界面的镜牢入口识别 + 空转兜底退出
+
+现象：程序在「Drive 界面」和「Window（角色）界面」之间每 5 秒来回点，永远进不了镜牢。
+
+根因（与提速无关，是游戏版本更新）：Drive 界面里的镜牢入口从「一行大字
+`Mirror Dungeons`」改成「两行小字 `Mirror` / `Dungeons`」，旧模板
+`home/mirror_dungeons_assets.png` 在 1600x900 下只有 **0.51** 相似度，永远低于 0.8，
+于是 `road_to_mir` 走到「看不到镜牢入口 → 点 Window 图标」的兜底分支，而 Window 界面上
+Drive 图标仍然可见，又点回 Drive，形成死循环。两个分支都是 `continue`，会跳过循环末尾的
+`loop_count` 判定，所以连兜底退出都触发不了。
+
+- 新增 `assets/images/default/en/home/mirror_dungeons_v2_assets.png`（两条文字样式的入口按钮）。
+  同一画面实测：Drive 界面 **0.99**，Window 界面 **0.48**，区分度足够。
+- `MIRROR_ENTRY_ASSETS` + `mirror_entry_visible()`：新旧两份模板都试，旧版界面不受影响。
+- 两个来回点的分支也计入 `loop_count`，并把兜底退出判定搬到循环开头
+  （原来在末尾，被 `continue` 跳过，等于没有）。
+
+维护提示：**游戏再改 UI 时，这张模板会第一个失效**。症状就是日志里反复出现
+`home/window_assets.png ... 相似度：0.98` 与 `home/drive_assets.png ... 相似度：0.98` 交替。
+补模板的方法：截一张 1600x900 的 Drive 界面，按 `assets/images` 的惯例（2560x1440 黑底画布、
+内容留在原位）扣出入场按钮，存成 `default/en/home/mirror_dungeons_v2_assets.png` 即可。
+
+冲突风险：低（只改了 `road_to_mir` 内 3 处判断，模板是新增文件）。
+
 ### fix(enkephalin) — 兑换开关拆分 + 修复空跑换饼
 
 - `module/config/config_typing.py` / `assets/config/config.example.yaml`

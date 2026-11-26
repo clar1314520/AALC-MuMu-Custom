@@ -60,11 +60,18 @@ def default_version() -> str:
         return "dev"
 
 
-def run_pyinstaller() -> None:
+def run_pyinstaller(clean: bool = True, dist_dir: Path | None = None, work_dir: Path | None = None) -> None:
     from PyInstaller.__main__ import run
 
-    shutil.rmtree(DIST, ignore_errors=True)
-    run(["main.spec", "--noconfirm"])
+    target = dist_dir or DIST
+    if clean and target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    args = ["main.spec", "--noconfirm"]
+    if dist_dir is not None:
+        args += ["--distpath", str(target)]
+    if work_dir is not None:
+        args += ["--workpath", str(work_dir)]
+    run(args)
 
 
 def lrelease_exe() -> str:
@@ -132,11 +139,27 @@ def main() -> None:
     parser.add_argument("--version", default=None, help="写入 assets/config/version.txt 的版本号")
     parser.add_argument("--post-only", action="store_true", help="跳过 PyInstaller，只做产物后处理")
     parser.add_argument("--sync-config", action="store_true", help="用源码目录的配置覆盖产物里的配置")
+    parser.add_argument(
+        "--keep-dist",
+        action="store_true",
+        help="保留已有 dist 目录（不整体删除，由 PyInstaller 就地覆盖）",
+    )
+    parser.add_argument(
+        "--dist-dir",
+        default=None,
+        help="产物根目录名（默认 dist）。程序正在运行时 dist 被占用，可先输出到 dist_new 再改名",
+    )
     args = parser.parse_args()
+
+    if args.dist_dir:
+        global DIST, APP_DIR
+        DIST = ROOT / args.dist_dir
+        APP_DIR = DIST / "AALC"
 
     version = args.version or default_version()
     if not args.post_only:
-        run_pyinstaller()
+        run_pyinstaller(clean=not args.keep_dist, dist_dir=DIST,
+                        work_dir=ROOT / ("build_" + DIST.name))
     elif not APP_DIR.exists():
         raise SystemExit(f"未找到 {APP_DIR}，请先执行完整构建")
 
