@@ -4,6 +4,7 @@ from module.automation import auto
 from module.decorator.decorator import begin_and_finish_time_log
 from module.logger import log
 from tasks.base.retry import retry
+from utils.perf import perf
 
 reward_card_model = {
     0: [
@@ -47,6 +48,7 @@ def get_reward_card(model=0):
     state = "select_reward"
     auto.model = "clam"
     reward_card = reward_card_model[model]
+    perf.reset()  # 只统计本页面，避免带上上一页的耗时
     while True:
         # 自动截图
         if auto.take_screenshot() is None:
@@ -98,6 +100,7 @@ def get_reward_card(model=0):
                 state = "claim_reward"
                 continue
         # 走到这里说明本轮没有任何点击，可以复用循环顶部那一帧
+        log.debug(perf.report_and_reset("获取奖励卡页"))
         if retry(reuse_frame_within=0.2) is False:
             return False
         loop_count -= 1

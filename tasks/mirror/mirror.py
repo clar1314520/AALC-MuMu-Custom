@@ -36,6 +36,18 @@ from tasks.teams.team_formation import check_team, load_team_code_in_game, selec
 from utils.image_utils import ImageUtils
 
 
+# EGO 饰品获取页"Refuse Gift"按钮所在区域（1440 高度基准）。
+# 这里原先没有裁剪，等于每轮主循环都做一次整屏 OCR（实测约 3.3 秒），
+# 是"选饰品时卡一下"的主要来源；限制到按钮区域后约 0.4 秒。
+EGO_GIFT_REFUSE_ROI = (1568, 1088, 2080, 1264)
+
+
+def _scale_roi_1440(roi):
+    """1440 基准坐标 -> 当前截图坐标。"""
+    scale = cfg.set_win_size / 1440
+    return tuple(int(value * scale) for value in roi)
+
+
 # 输出时间统计
 def to_log_with_time(msg, elapsed_time):
     # 将总秒数转换为小时、分钟和秒
@@ -314,7 +326,7 @@ class Mirror:
                         if time.monotonic() >= wait_deadline or auto.take_screenshot() is None:
                             break
                     previous_floor = self.floor
-                    self.floor = get_floor(self.floor, "mirror/theme_pack/theme_pack_setting_assets.png")
+                    self.floor = get_floor(self.floor, "theme_pack")
                     self.floor_detect_failed = self.floor == 0
                     self.mirror_map.refresh_floor(self.floor, reset=True)
                     if self.floor > 0:
@@ -363,7 +375,7 @@ class Mirror:
                 retry()
                 # 楼层未知且本层尚未识别失败才尝试；失败后不再重试，等进入新的层（卡包页）再识别。
                 if self.floor == 0 and not self.floor_detect_failed:
-                    self.floor = get_floor(self.floor)
+                    self.floor = get_floor(self.floor, "map")
                     self.floor_detect_failed = self.floor == 0
                     self.mirror_map.refresh_floor(self.floor)
 
@@ -473,7 +485,9 @@ class Mirror:
             ):
                 self.acquire_ego_gift(type=2)
                 continue
-            if main_loop_count < 30 and auto.find_language_text("拒绝饰品", "refuse"):
+            if main_loop_count < 30 and auto.find_language_text(
+                "拒绝饰品", "refuse", _scale_roi_1440(EGO_GIFT_REFUSE_ROI), fast_ocr=True
+            ):
                 self.acquire_ego_gift(type=2)
                 continue
 

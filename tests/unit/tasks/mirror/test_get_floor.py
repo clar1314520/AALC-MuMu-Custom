@@ -1,8 +1,9 @@
-"""闸层识别：单帧取图 + 有界轮询的流程测试
+"""闸层识别的兜底方案（点齿轮数 CLEAR）：单帧取图 + 有界轮询
 
-get_floor 原先"固定 sleep(1) → 截图找设置面板 → 再截一张彩色图数 CLEAR"，
-其中后两张图之间没有任何点击，白等一个截图间隔。改造后每轮只取一张彩色图，
-模板匹配用它的灰度副本、CLEAR 统计用它的彩色原件。
+get_floor 现在优先直接 OCR 界面上的楼层文字（见 test_floor_ocr.py），点齿轮只是
+OCR 失败时的兜底。兜底流程原先"固定 sleep(1) → 截图找设置面板 → 再截一张彩色图
+数 CLEAR"，其中后两张图之间没有任何点击，白等一个截图间隔；改造后每轮只取一张
+彩色图，模板匹配用它的灰度副本、CLEAR 统计用它的彩色原件。
 
 这里用假截图源和假识别结果钉住：
 1. 面板没出现时会继续轮询，出现后立刻停止；
@@ -51,8 +52,8 @@ def fake_auto(monkeypatch):
     return state
 
 
-def test_get_floor_reuses_single_frame_per_poll(fake_auto):
-    floor = get_floor_module.get_floor(previous_floor=2)
+def test_setting_panel_reuses_single_frame_per_poll(fake_auto):
+    floor = get_floor_module._floor_by_setting("mirror/road_in_mir/setting_assets.png")
 
     assert floor == 3, "两层 CLEAR 应为第 3 层"
     assert fake_auto["panel_checks"] == 3, "面板未出现时应继续轮询"
@@ -62,12 +63,12 @@ def test_get_floor_reuses_single_frame_per_poll(fake_auto):
     assert fake_auto["regions_frame"].shape[:2] == (900, 1600)
 
 
-def test_get_floor_reports_unknown_when_panel_never_opens(monkeypatch, fake_auto):
+def test_setting_panel_reports_zero_when_panel_never_opens(monkeypatch, fake_auto):
     """面板一直不出现时应按超时退出并返回 0，不会卡死。"""
     monkeypatch.setattr(
         get_floor_module, "FLOOR_PANEL_WAIT_TIMEOUT", 0.0, raising=True
     )
-    floor = get_floor_module.get_floor(previous_floor=2)
+    floor = get_floor_module._floor_by_setting("mirror/road_in_mir/setting_assets.png")
 
     assert floor == 0
     assert fake_auto["regions_frame"] is None

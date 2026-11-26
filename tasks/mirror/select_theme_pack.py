@@ -6,6 +6,7 @@ from module.decorator.decorator import begin_and_finish_time_log
 from module.logger import log
 from tasks.base.back_init_menu import back_init_menu
 from utils.path_manager import path_manager
+from utils.perf import perf
 
 
 def get_theme_pack_difficulty():
@@ -89,6 +90,9 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
                 if floor == 5 and cfg.skip_event_pack:
                     all_theme_pack.sort(key=lambda pos: (pos[0], pos[1]))
                     all_theme_pack.pop(0)  # 删除最左边的卡包
+
+                # 逐卡裁剪出识别区域：卡包名在卡片下半部分
+                crops = []
                 for pack in all_theme_pack:
                     top_left = (
                         max(pack[0] - 210 * scale, 0),
@@ -98,8 +102,16 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
                         min(pack[0] + 60 * scale, cfg.set_win_size * 16 / 9),
                         min(pack[1] + 390 * scale, cfg.set_win_size),
                     )
-                    crop = (top_left[0], top_left[1], bottom_right[0], bottom_right[1])
-                    result = auto.find_language_text(theme_pack_list_zh, theme_pack_list_en, crop)
+                    crops.append((top_left[0], top_left[1], bottom_right[0], bottom_right[1]))
+
+                # 整排一次 OCR，再按坐标把文本归属到各张卡：识别次数从 N 次降到 1 次
+                text_groups = auto.ocr_text_groups(crops)
+                for crop, texts in zip(crops, text_groups):
+                    result = auto.match_language_text(theme_pack_list_zh, theme_pack_list_en, texts)
+                    if result is False or result is None:
+                        if not texts:
+                            # 该卡完全没分到文本（贴边/遮挡）时才单卡补一次识别
+                            result = auto.find_language_text(theme_pack_list_zh, theme_pack_list_en, crop)
                     if isinstance(result, TextMatchResult):
                         theme_pack_weight = result.value
                         theme_pack_name = result.text
@@ -109,6 +121,9 @@ def select_theme_pack(hard_mode=False, floor=None, team_num=None, use_custom_the
 
                     weight_list.append(theme_pack_weight)  # 采用最大值的形式，权重越大，优先级越高
                     pack_name.append(theme_pack_name)
+
+                # 耗时分布：截图 / 匹配 / OCR 各自的占比
+                log.debug(perf.report_and_reset("选卡包页"))
 
                 # 选择权重最大的主题包
                 max_weight = max(weight_list)
