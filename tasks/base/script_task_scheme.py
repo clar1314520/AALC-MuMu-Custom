@@ -359,8 +359,10 @@ def script_task() -> None | int:
     init_game()
     _warn_if_game_monitor_hdr_enabled()
 
-    if cfg.skip_enkephalin:
-        log.info("设置了跳过合成脑啡肽，将不会自动合成\nSet to skip make enkephalin, it will not to do")
+    if cfg.skip_stamina_exchange:
+        log.info("设置了禁止体力换饼，将不会自动合成\nSet to skip stamina exchange, it will not be done")
+    if cfg.skip_lunacy_exchange:
+        log.info("设置了禁止狂气换体，将不会自动兑换\nSet to skip lunacy exchange, it will not be done")
     if not cfg.simulator:
         if _get_game_rendering_scale() == 2:
             log.warning("当前游戏渲染比例为低, 可能会导致识别错误, 建议设置为中或更高")

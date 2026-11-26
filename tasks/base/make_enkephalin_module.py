@@ -76,13 +76,17 @@ def get_current_enkephalin():
 
 
 @begin_and_finish_time_log(task_name="体力换饼", calculate_time=False)
-def make_enkephalin_module(cancel=True, skip=True, *, task_name: str = "体力换饼"):
+def make_enkephalin_module(cancel=True, skip=True, *, task_name: str = "体力换饼", convert=True):
     """体力换饼的模块
     Args:
         cancel (bool): 是否点击取消按钮 (即关闭换体界面)
-        skip (bool): 是否遵循设置跳过换体 (优先于cfg.skip_enkephalin)
+        skip (bool): 是否遵循「禁止体力换饼」设置 (优先于 cfg.skip_stamina_exchange)
+        task_name (str): 日志中显示的任务名
+        convert (bool): 为 False 时只负责把脑啡肽面板打开，不执行换饼。
+            供狂气换体在「禁止体力换饼」时仍能打开面板使用。
     """
-    if skip and cfg.skip_enkephalin:
+    if skip and cfg.skip_stamina_exchange:
+        log.debug(f"设置了禁止体力换饼，跳过{task_name}")
         return
     import time
 
@@ -150,6 +154,9 @@ def make_enkephalin_module(cancel=True, skip=True, *, task_name: str = "体力�
                 last_open_panel_click_time = now_time
                 sleep(0.5)
             continue
+        if not convert:
+            # 只为后续操作（如狂气换体）把面板打开，不执行换饼
+            return True
         if auto.click_element(
             "enkephalin/all_in_assets.png",
             threshold=all_in_threshold,
@@ -176,7 +183,20 @@ def make_enkephalin_module(cancel=True, skip=True, *, task_name: str = "体力�
 
 @begin_and_finish_time_log(task_name="狂气换体", calculate_time=False)
 def lunacy_to_enkephalin(times=0):
-    make_enkephalin_module(cancel=False, skip=False, task_name="狂气换体")
+    if times <= 0:
+        # 下拉框选「不换」。此前这里仍会开面板并白跑一次体力换饼
+        log.info("狂气换体次数为 0（不换），跳过兑换")
+        return
+    if cfg.skip_lunacy_exchange:
+        log.info("设置了禁止狂气换体，跳过兑换")
+        return
+    # 面板必须打开才能切到狂气页签；禁止体力换饼时只开面板，不做换饼
+    make_enkephalin_module(
+        cancel=False,
+        skip=False,
+        task_name="狂气换体",
+        convert=not cfg.skip_stamina_exchange,
+    )
     auto.click_element("enkephalin/use_lunacy_assets.png")
     sleep(0.5)
     Grandet = False
@@ -232,4 +252,5 @@ def lunacy_to_enkephalin(times=0):
         time += 1
     auto.click_element("enkephalin/enkephalin_cancel_assets.png")
     sleep(1)
-    make_enkephalin_module(skip=False)
+    # 换体结束后按设置处理剩余的体力换饼（禁止时该函数会自行跳过）
+    make_enkephalin_module()
