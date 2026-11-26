@@ -40,6 +40,16 @@ reward_card_model = {
 _CLAIM_RETRY_DELAY = 5.0
 
 
+def _frame_signature(image) -> int:
+    """极便宜的画面指纹：缩略图灰度总和。
+
+    比模板匹配快两个数量级，用来判断"这一轮画面和上一轮是否完全一样"。
+    画面没变时匹配结果必然相同，可以直接跳过整轮模板匹配。
+    """
+    thumb = image.resize((32, 18)).convert("L")
+    return sum(thumb.getdata())
+
+
 @begin_and_finish_time_log(task_name="镜牢获取奖励卡", calculate_time=False)
 # 获取奖励卡
 def get_reward_card(model=0):
@@ -48,11 +58,23 @@ def get_reward_card(model=0):
     state = "select_reward"
     auto.model = "clam"
     reward_card = reward_card_model[model]
+    last_signature = 0
     perf.reset()  # 只统计本页面，避免带上上一页的耗时
     while True:
         # 自动截图
         if auto.take_screenshot() is None:
             continue
+        # 画面与上一轮完全一致时，匹配结果必然一致：跳过整轮模板匹配。
+        # 但领取按钮的"重试计时"是时间驱动的，到点那一轮必须照常检查。
+        signature = _frame_signature(auto.screenshot)
+        if (
+            signature == last_signature
+            and state == "wait_result"
+            and monotonic() < claim_retry_at
+        ):
+            log.debug("画面未变化，跳过本轮模板匹配")
+            continue
+        last_signature = signature
         auto.mouse_to_blank()
         if auto.find_element("mirror/road_in_mir/legend_assets.png"):
             return True

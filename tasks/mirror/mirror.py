@@ -34,7 +34,7 @@ from tasks.mirror.search_road import (
 from tasks.mirror.select_theme_pack import select_theme_pack, switch_theme_pack_difficulty
 from tasks.teams.team_formation import check_team, load_team_code_in_game, select_battle_team, team_formation
 from utils.image_utils import ImageUtils
-
+from utils.perf import perf
 
 # EGO 饰品获取页"Refuse Gift"按钮所在区域（1440 高度基准）。
 # 这里原先没有裁剪，等于每轮主循环都做一次整屏 OCR（实测约 3.3 秒），
@@ -1440,22 +1440,29 @@ class Mirror:
                     "mirror/road_in_mir/acquire_ego_gift_card.png",
                     find_type="image_with_multiple_targets",
                 )
+                # 每张饰品卡的识别区域（卡框中心 → 卡片范围）
+                card_bboxes = [
+                    (
+                        button[0] - 50 * my_scale,
+                        button[1] - 300 * my_scale,
+                        button[0] + 450 * my_scale,
+                        button[1] + 350 * my_scale,
+                    )
+                    for button in acquire_card
+                ]
+                # 一次 OCR 覆盖所有饰品卡，再按横坐标归属到各卡。
+                # 原先每张卡要各识别两次（白棉花 + 已持有），3 张卡就是 6 次整卡 OCR，
+                # 单次约 1.4 秒，实测这一页光识别就要十几秒。
+                card_texts = auto.ocr_text_groups(card_bboxes) if card_bboxes else []
                 my_list = []
                 if len(acquire_card) == 2:
                     gift_candidates = []
-                    for button in acquire_card:
-                        bbox = (
-                            button[0] - 50 * my_scale,
-                            button[1] - 300 * my_scale,
-                            button[0] + 450 * my_scale,
-                            button[1] + 350 * my_scale,
-                        )
-                        if not cfg.not_skip_whitegossypium:
-                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox)
-                            if isinstance(ocr_result, list):
-                                if len(ocr_result) >= 2:
-                                    continue
-                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox))
+                    for index, button in enumerate(acquire_card):
+                        if not cfg.not_skip_whitegossypium and auto.match_language_text(
+                            "白棉花", ["white", "gossypium"], card_texts[index]
+                        ):
+                            continue
+                        is_owned = bool(auto.match_language_text("已持有", "Owned", card_texts[index]))
                         gift_candidates.append((is_owned, button))
 
                     if gift_candidates:
@@ -1471,31 +1478,24 @@ class Mirror:
                             return False
                         return
                 elif len(acquire_card) == 1:
-                    for button in acquire_card:
-                        bbox = (
-                            button[0] - 50 * my_scale,
-                            button[1] - 300 * my_scale,
-                            button[0] + 450 * my_scale,
-                            button[1] + 350 * my_scale,
-                        )
-                        if not cfg.not_skip_whitegossypium:
-                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox)
-                            if isinstance(ocr_result, list):
-                                if len(ocr_result) >= 2:
-                                    time.sleep(1)
-                                    auto.click_element(
-                                        "mirror/road_in_mir/refuse_gift_assets.png",
-                                        take_screenshot=True,
-                                    )
-                                    sleep(1)
-                                    auto.click_element(
-                                        "mirror/road_in_mir/refuse_gift_confirm_assets.png",
-                                        take_screenshot=True,
-                                    )
-                                    time.sleep(2)
-                                    if retry() is False:
-                                        return False
-                                    return
+                    for index, button in enumerate(acquire_card):
+                        if not cfg.not_skip_whitegossypium and auto.match_language_text(
+                            "白棉花", ["white", "gossypium"], card_texts[index]
+                        ):
+                            time.sleep(1)
+                            auto.click_element(
+                                "mirror/road_in_mir/refuse_gift_assets.png",
+                                take_screenshot=True,
+                            )
+                            sleep(1)
+                            auto.click_element(
+                                "mirror/road_in_mir/refuse_gift_confirm_assets.png",
+                                take_screenshot=True,
+                            )
+                            time.sleep(2)
+                            if retry() is False:
+                                return False
+                            return
                         auto.mouse_click(button[0], button[1])
                         time.sleep(1)
                         auto.click_element(
@@ -1508,18 +1508,13 @@ class Mirror:
                         return
                 else:
                     system_nums = 0
-                    for button in acquire_card:
-                        bbox = (
-                            button[0] - 50 * my_scale,
-                            button[1] - 300 * my_scale,
-                            button[0] + 450 * my_scale,
-                            button[1] + 350 * my_scale,
-                        )
-                        if not cfg.not_skip_whitegossypium:
-                            ocr_result = auto.find_language_text("白棉花", ["white", "gossypium"], bbox)
-                            if ocr_result:
-                                continue
-                        is_owned = bool(auto.find_language_text("已持有", "Owned", bbox))
+                    for index, button in enumerate(acquire_card):
+                        bbox = card_bboxes[index]
+                        if not cfg.not_skip_whitegossypium and auto.match_language_text(
+                            "白棉花", ["white", "gossypium"], card_texts[index]
+                        ):
+                            continue
+                        is_owned = bool(auto.match_language_text("已持有", "Owned", card_texts[index]))
                         gift_candidate = (is_owned, button)
                         if auto.find_element(
                             f"mirror/road_in_mir/acquire_ego_gift/{self.system}.png",
@@ -1546,6 +1541,8 @@ class Mirror:
                     my_list = [gift[1] for gift in my_list]
                     if owned_gifts:
                         log.debug(f"检测到{owned_gifts}个已持有EGO饰品，已降低选择优先级")
+                # 耗时分布：识别饰品名与"已持有"只做一次 OCR，其余是模板匹配
+                log.debug(perf.report_and_reset("饰品选择页"))
                 select_bbox = ImageUtils.get_bbox(ImageUtils.load_image("mirror/road_in_mir/ego_gift_get_bbox.png"))
                 if select_bbox:
                     select_bbox = (
@@ -1554,7 +1551,10 @@ class Mirror:
                         min(select_bbox[2] + 100, cfg.set_win_size * 16 / 9),  # 确保右下角 x 坐标不大于 图片宽
                         min(select_bbox[3] + 100, cfg.set_win_size),  # 确保右下角 y 坐标不大于 图片高
                     )
-                if auto.find_text_element(["0/2", "02", "2/2", "22", "/2"], my_crop=select_bbox):
+                # "Select 0/1" 只识别一次：原先先后用两组关键词各 OCR 一遍同一块区域
+                select_texts = auto.ocr_text_groups([select_bbox])[0] if select_bbox else []
+                select_text = "".join(select_texts)
+                if any(token in select_text for token in ("0/2", "02", "2/2", "22", "/2")):
                     for gift in my_list[:2]:
                         auto.mouse_click(gift[0], gift[1])
                         sleep(cfg.mouse_action_interval)
@@ -1566,7 +1566,9 @@ class Mirror:
                     if retry() is False:
                         return False
                     return
-                elif auto.find_text_element(["0/1", "01", "1/1", "11", "1/2", "12", "/1"], my_crop=select_bbox):
+                elif any(
+                    token in select_text for token in ("0/1", "01", "1/1", "11", "1/2", "12", "/1")
+                ):
                     for gift in my_list[:1]:
                         auto.mouse_click(gift[0], gift[1])
                         sleep(cfg.mouse_action_interval)
