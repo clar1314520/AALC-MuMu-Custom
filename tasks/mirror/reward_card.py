@@ -39,6 +39,11 @@ reward_card_model = {
 
 _CLAIM_RETRY_DELAY = 5.0
 
+# 饰品已获得页的确认按钮（屏幕正下方一个 ✓）
+EGO_GIFT_CONFIRM = "mirror/road_in_mir/ego_gift_get_confirm_assets.png"
+# 饰品卡框标记：三选一时每张卡各一个，单饰品页只有一个
+EGO_GIFT_CARD_MARKER = "mirror/road_in_mir/acquire_ego_gift_card.png"
+
 
 def _frame_signature(image) -> int:
     """极便宜的画面指纹：缩略图灰度总和。
@@ -48,6 +53,26 @@ def _frame_signature(image) -> int:
     """
     thumb = image.resize((32, 18)).convert("L")
     return sum(thumb.getdata())
+
+
+def _try_finish_single_gift() -> bool:
+    """单饰品直给页：屏幕上孤零零一张饰品卡 + 一个确认按钮。
+
+    这种页面没有可挑的东西，饰品名（含"已持有"）认不认识都不影响结果，
+    所以只做两次便宜的模板匹配就确认走人，不进后面的饰品识别流程。
+
+    判据：先看确认按钮（59x44，位置固定，匹配最便宜），
+    再数饰品卡框标记——只有一个才算单饰品直给。
+    """
+    position = auto.find_element(EGO_GIFT_CONFIRM, model="clam")
+    if not position:
+        return False
+    cards = auto.find_element(EGO_GIFT_CARD_MARKER, find_type="image_with_multiple_targets")
+    if len(cards or []) != 1:
+        return False
+    auto.mouse_click(position[0], position[1])
+    log.debug("单饰品直给页：直接确认，跳过饰品识别与三选一匹配")
+    return True
 
 
 @begin_and_finish_time_log(task_name="镜牢获取奖励卡", calculate_time=False)
@@ -76,12 +101,16 @@ def get_reward_card(model=0):
             continue
         last_signature = signature
         auto.mouse_to_blank()
+        # 单饰品直给页最先判：命中就确认走人，不必进后面的奖励卡匹配。
+        # 只在选择态检查（点击过奖励卡之后就不会再出现单饰品页），省掉后续轮次的一次匹配。
+        if state == "select_reward" and _try_finish_single_gift():
+            return True
         if auto.find_element("mirror/road_in_mir/legend_assets.png"):
             return True
-        if auto.click_element("mirror/road_in_mir/ego_gift_get_confirm_assets.png", model="clam"):
+        if auto.click_element(EGO_GIFT_CONFIRM, model="clam"):
             log.debug("奖励卡领取后识别到EGO确认，领取流程结束")
             return True
-        if auto.find_element("mirror/road_in_mir/acquire_ego_gift_card.png"):
+        if auto.find_element(EGO_GIFT_CARD_MARKER):
             log.debug("奖励卡领取后进入饰品选择，交回镜牢主循环处理")
             return True
         if auto.click_element("mirror/get_reward_card/continue_choosing_assets.png", model="clam"):
@@ -113,6 +142,8 @@ def get_reward_card(model=0):
                     continue
 
         if state == "select_reward":
+            # 三选一：5 个模板都按 clam 模式匹配（只搜模板原位 ±30px），
+            # 天然就是"只看中间那三张卡的位置"，不做全屏扫描，无需再套 ROI。
             select_reward = False
             for card in reward_card:
                 if auto.click_element(f"mirror/get_reward_card/{card}.png"):

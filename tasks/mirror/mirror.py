@@ -1450,6 +1450,25 @@ class Mirror:
                     )
                     for button in acquire_card
                 ]
+                # 单饰品直给页：屏幕上只有一个饰品、没有可挑的，界面也没有"拒绝"入口。
+                # 既然无法选择也无法拒绝，白棉花/已持有两项判断都不影响结果，
+                # 直接点掉走人，省下这一页的全部 OCR（单卡约 1~1.5 秒）。
+                if len(acquire_card) == 1 and not auto.find_element(
+                    "mirror/road_in_mir/refuse_gift_assets.png", model="clam"
+                ):
+                    button = acquire_card[0]
+                    log.debug("单饰品直给页：跳过饰品名识别，直接领取")
+                    auto.mouse_click(button[0], button[1])
+                    time.sleep(1)
+                    auto.click_element(
+                        "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
+                        model="normal",
+                    )
+                    time.sleep(2)
+                    if retry() is False:
+                        return False
+                    return
+
                 # 一次 OCR 覆盖所有饰品卡，再按横坐标归属到各卡。
                 # 原先每张卡要各识别两次（白棉花 + 已持有），3 张卡就是 6 次整卡 OCR，
                 # 单次约 1.4 秒，实测这一页光识别就要十几秒。
