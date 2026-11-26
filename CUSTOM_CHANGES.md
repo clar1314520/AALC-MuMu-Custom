@@ -91,6 +91,46 @@ Drive 图标仍然可见，又点回 Drive，形成死循环。两个分支都�
 
 冲突风险：低（只改了 `road_to_mir` 内 3 处判断，模板是新增文件）。
 
+### perf(ocr/mirror) — 楼层 OCR 直读 + 选卡包/选饰品局部化
+
+**楼层识别不再点齿轮**（`tasks/mirror/get_floor.py`）：
+
+| | 旧方案 | 新方案 |
+|---|---|---|
+| 做法 | 点齿轮 → 等面板 → 数 CLEAR 徽章 | 直接 OCR 界面文字 |
+| 地图页 | 同左 | 读左上角 `Exploring Floor N` |
+| 卡包页 | 同左 | 读顶部 `SELECT FLOOR N THEME PACK` |
+| 耗时 | 3~4s | ~0.7s（两次尝试都失败才算失败） |
+
+- 解析做了容错：OCR 常把 `FLOOR` 认成 `FL0OR`、把空格吃掉
+  （`SELECTFLOOR1THEMEPACK`），所以先去掉空白再匹配 `FL[0O]?[0O]R\D{0,4}(\d{1,2})`。
+- 失败会重试一次（页面淡入），仍失败才回退到原来的齿轮方案，并把失败截图存到
+  `logs/floor_ocr_fail_*.png`（每局最多 3 张），方便下次调 ROI。
+
+**OCR 本身的两处浪费**：
+
+1. `Det.limit_side_len: 736` + `limit_type: min` 意味着**任何裁剪图都会被放大到短边
+   736**。一条 390x50 的楼层文字条会被放大到 1600x216，像素量反超整屏，
+   实测 3.8s > 整屏 3.3s。新增 `ocr.run_small()` 把检测短边临时压到 320，
+   同一区域 0.43s，识别结果不变。
+2. `mirror.py` 里"拒绝饰品"的 `find_language_text` 没有裁剪区域，等于**每轮主循环
+   整屏 OCR**（3.3s）——这是"选饰品时卡一下"的主因。限制到按钮区域后 0.4s。
+
+**选卡包批量识别**（`select_theme_pack.py`）：原先每张卡各自 OCR 一次（0.8~1s/张），
+改成整排一次 OCR 再按 x 坐标归属到各卡，3 张卡从 ~2.7s 降到 1.07s；某张卡完全没
+分到文本时才单卡补识别。
+
+**耗时日志**（`utils/perf.py`）：截图 / 匹配 / OCR 分阶段累计，页面处理完输出一行：
+
+```
+选卡包页 耗时分布: 截图 1.70s/2次 · OCR 0.70s/1次 · 匹配 0.42s/13次 · 合计 2.82s
+```
+
+想看得更细就把日志级别调到 DEBUG。
+
+冲突风险：中。`automation.py` 的 `find_image_element` / `find_language_text` 是上游
+高频改动点，新增参数都放在参数表末尾，合并时注意保留。
+
 ### fix(enkephalin) — 兑换开关拆分 + 修复空跑换饼
 
 - `module/config/config_typing.py` / `assets/config/config.example.yaml`
