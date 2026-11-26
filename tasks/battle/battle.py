@@ -598,6 +598,16 @@ class Battle:
         return skill_3_indexes
 
     @staticmethod
+    def _skill3_indexes_from_matches(matches, scale: float) -> set[int]:
+        """把 3 技能匹配的 x 坐标换算成 skill_list 的下标（1 基）。
+
+        skill_list[0] 是左边的起点齿轮，技能格从 1 开始；match[0] 是相对裁剪图的
+        0 基坐标，所以必须 +1。少了这个 +1 会整体左移一格（选到隔壁技能），
+        并且最左边一格的 3 技能会被算成 0 而被过滤掉（直接划过去不选）。
+        """
+        return {round(match[0] / (145 * scale)) + 1 for match in matches}
+
+    @staticmethod
     def _chain_battle(prioritize_skill_3: bool = False) -> bool:
         try:
             scale = cfg.set_win_size / 1440
@@ -624,9 +634,10 @@ class Battle:
             skill_3_matches = []
             for sin_color in sins.values():
                 skill_3_matches.extend(find_skill3(sc, sin_color))
-            skill_3_indexes = {
-                round(match[0] / (145 * scale)) for match in skill_3_matches
-            }
+            # skill_list 的第 0 项是左边那个齿轮（划线的起点），真正的技能格从 1 开始，
+            # 而 match[0] 是相对裁剪图的 0 基坐标，换算时 +1（见 _skill3_indexes_from_matches）
+            skill_3_indexes = Battle._skill3_indexes_from_matches(skill_3_matches, scale)
+            log.debug(f"识别到 3 技能格: {sorted(skill_3_indexes)} / 共 {skill_nums} 格")
             lower_row_indexes = Battle._get_lower_row_skill_indexes(
                 skill_3_indexes,
                 skill_nums,

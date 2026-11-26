@@ -1,3 +1,4 @@
+import time
 from time import sleep
 
 from PIL import Image
@@ -1327,6 +1328,22 @@ class Shop:
                 self.replacement = 3
 
     # 在商店的处理
+    def _wait_leave_confirm(self, timeout: float = 2.5) -> bool:
+        """点完"离开"后游戏会弹 "Leave the shop?" 确认框：出现即点。
+
+        原先这里固定 sleep(1) 再回主循环重新截图判断，弹窗早就出来了也要白等一秒，
+        用户看到的就是"点完离开愣一下"。改成有界轮询，每轮取一张新帧（约 4 次/秒）。
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if auto.click_element(
+                "mirror/shop/leave_shop_confirm_assets.png", take_screenshot=True
+            ):
+                log.debug("已确认离开商店")
+                return True
+        log.debug(f"等待离开确认框超时({timeout}s)，交回主循环处理")
+        return False
+
     def in_shop(self, layer):
         heal = False
         sell = False
@@ -1413,15 +1430,18 @@ class Shop:
                 if auto.take_screenshot() is None:
                     continue
 
-                if retry() is False:
-                    raise self.RestartGame()
-                if auto.find_element("mirror/road_in_mir/legend_assets.png"):
-                    break
+                # 先看"离开"这条最快路径：retry() 一次要做好几个匹配，
+                # 放在后面能让点离开、点确认都不被它拖慢
                 if auto.click_element("mirror/shop/leave_shop_confirm_assets.png"):
                     continue
                 if auto.click_element("mirror/shop/leave_assets.png"):
-                    sleep(1)
+                    # 点完离开立刻盯二次确认框，出现即点，不再固定 sleep(1)
+                    self._wait_leave_confirm()
                     continue
+                if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+                    break
+                if retry() is False:
+                    raise self.RestartGame()
                 if auto.click_element("mirror/shop/heal_sinner/heal_sinner_return_assets.png"):
                     continue
                 loop_count -= 1

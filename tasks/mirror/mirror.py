@@ -649,23 +649,23 @@ class Mirror:
                     failed = False
                     continue
                 if auto.click_element("mirror/claim_reward/claim_rewards_assets.png"):
-                    sleep(1)
+                    self._wait_screen_change()
                 if auto.click_element("mirror/claim_reward/claim_forfeit_assets.png", model="normal", take_screenshot=True):
                     continue
             else:
                 if self.hard_reward_eligible and cfg.save_rewards:
                     auto.click_element("mirror/claim_reward/claim_rewards_assets.png")
-                    sleep(1)
+                    self._wait_screen_change()
                     pos = auto.find_element(
                         "mirror/claim_reward/use_enkephalin_assets.png",
                         take_screenshot=True,
                     )
                     if pos:
                         auto.mouse_click(pos[0] - 300 * (cfg.set_win_size / 1440), pos[1])
-                        sleep(1)
+                        self._wait_screen_change()
                     continue
                 elif auto.click_element("mirror/claim_reward/claim_rewards_assets.png"):
-                    sleep(1)
+                    self._wait_screen_change()
                     if cfg.no_weekly_bonuses:
                         bonuses = auto.find_element(
                             "mirror/claim_reward/weekly_bonuses.png",
@@ -678,7 +678,7 @@ class Mirror:
                                 auto.mouse_click(position[0], position[1])
                     if cfg.hard_mirror_single_bonuses:
                         log.debug("开启了困牢单次领取奖励，如果存在多次奖励，则将单次领取")
-                        sleep(1)
+                        self._wait_screen_change()
                         bonuses = auto.find_element(
                             "mirror/claim_reward/weekly_bonuses.png",
                             find_type="image_with_multiple_targets",
@@ -1437,6 +1437,47 @@ class Mirror:
         self.event_total_time += event_elapsed_time
         self.event_times += 1
 
+    def _wait_screen_change(self, timeout: float = 1.0) -> bool:
+        """等界面变化就立刻返回（最多 timeout 秒），替代结算页里的固定 sleep(1)。
+
+        点完"领取"后弹窗/翻页的延迟不确定，固定等 1 秒要么白等、要么不够。
+        这里每轮取一张新帧（受 screenshot_interval 节流，约 4 次/秒），
+        用 32x18 缩略图指纹判断"画面变了没有"，变化即返回；超时也不会比原来更慢。
+        """
+        def signature():
+            if auto.screenshot is None:
+                return None
+            return sum(auto.screenshot.resize((32, 18)).convert("L").getdata())
+
+        base = signature()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if auto.take_screenshot() is None:
+                continue
+            current = signature()
+            if base is not None and current is not None and current != base:
+                return True
+        return False
+
+    def _settle_ego_gift(self, timeout: float = 3.0) -> bool:
+        """选中饰品后游戏会弹 E.G.O Gift GET! 确认框：出现就点，不再固定等 2 秒。
+
+        原先这里是无条件 `time.sleep(2)`，弹窗早就出来了也照样干等两秒，
+        用户看到的就是"选中后顿一下才去确认"。改成有界轮询：
+        每轮取一张新帧（受 screenshot_interval 节流，约 4 次/秒），点掉就返回。
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if auto.click_element(
+                "mirror/road_in_mir/ego_gift_get_confirm_assets.png",
+                take_screenshot=True,
+                model="clam",
+            ):
+                log.debug("E.G.O 饰品确认框已点掉")
+                return True
+        log.debug(f"等待 E.G.O 确认框超时({timeout}s)，继续后续流程")
+        return False
+
     def acquire_ego_gift(self, type: int = 1):
         my_scale = cfg.set_win_size / 1440
         auto.model = "clam"
@@ -1448,7 +1489,7 @@ class Mirror:
             auto.mouse_click(pos[0], pos[1] - 500 * my_scale)
             sleep(cfg.mouse_action_interval)
             auto.click_element("mirror/road_in_mir/acquire_ego_gift_select_assets.png", model="normal")
-            time.sleep(2)
+            self._settle_ego_gift()
             if retry() is False:
                 return False
             return
@@ -1487,7 +1528,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    self._settle_ego_gift()
                     if retry() is False:
                         return False
                     return
@@ -1515,7 +1556,7 @@ class Mirror:
                             "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                             model="normal",
                         )
-                        time.sleep(2)
+                        self._settle_ego_gift()
                         if retry() is False:
                             return False
                         return
@@ -1534,7 +1575,7 @@ class Mirror:
                                 "mirror/road_in_mir/refuse_gift_confirm_assets.png",
                                 take_screenshot=True,
                             )
-                            time.sleep(2)
+                            self._settle_ego_gift(timeout=2.0)
                             if retry() is False:
                                 return False
                             return
@@ -1544,7 +1585,7 @@ class Mirror:
                             "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                             model="normal",
                         )
-                        time.sleep(2)
+                        self._settle_ego_gift()
                         if retry() is False:
                             return False
                         return
@@ -1604,7 +1645,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    self._settle_ego_gift()
                     if retry() is False:
                         return False
                     return
@@ -1618,7 +1659,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    self._settle_ego_gift()
                     if retry() is False:
                         return False
                     return
@@ -1630,7 +1671,7 @@ class Mirror:
                         "mirror/road_in_mir/acquire_ego_gift_select_assets.png",
                         model="normal",
                     )
-                    time.sleep(2)
+                    self._settle_ego_gift()
                     if retry() is False:
                         return False
                     return
