@@ -16,7 +16,7 @@ GEMINI.md
 build
 dist
 dist_new
-dist_v3
+dist_v*
 build_dist_*
 dist_release
 *.pyc
