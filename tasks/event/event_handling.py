@@ -8,6 +8,30 @@ from module.automation import auto
 from module.config import cfg
 from module.logger import log
 from utils.image_utils import ImageUtils
+from utils.path_manager import path_manager
+
+# 罪人成功率栏 bbox 缓存：(窗口尺寸/主题/语言, bbox)
+_sinner_bbox_cache: tuple[tuple, tuple[int, int, int, int]] | None = None
+
+
+def get_sinner_bbox() -> tuple[int, int, int, int] | None:
+    """返回罪人成功率栏的裁剪框，供模板匹配与 OCR ROI 使用。
+
+    all_sinner_bbox.png 是 2560x1440 的黑底图，load_image 会按 set_win_size 先缩放，
+    因此 get_bbox 得到的是当前截图坐标系下的框，可直接用于 screenshot.crop，
+    在 1600x900 等非 1440p 分辨率下也不需要再额外换算。
+    """
+    global _sinner_bbox_cache
+    key = (cfg.set_win_size, path_manager.current_theme, path_manager.current_language)
+    if _sinner_bbox_cache is not None and _sinner_bbox_cache[0] == key:
+        return _sinner_bbox_cache[1]
+    bbox_img = ImageUtils.load_image("event/all_sinner_bbox.png")
+    if bbox_img is None:
+        return None
+    bbox = ImageUtils.get_bbox(bbox_img)
+    bbox = (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
+    _sinner_bbox_cache = (key, bbox)
+    return bbox
 
 
 class EventHandling:
@@ -46,16 +70,17 @@ class EventHandling:
         # 这样very low不会再被灰度匹配误判成极高。
         if auto.take_screenshot(gray=False) is not None:
             frame = np.array(auto.screenshot)
-            if (bbox_img := ImageUtils.load_image("event/all_sinner_bbox.png")) is not None:
-                black_out_red(frame, ImageUtils.get_bbox(bbox_img))
+            # 同一帧派生两份灰度图：一份保留红色（找低/极低），一份抹掉红色（找极高/高/一般）。
+            # 两趟匹配之间没有任何点击，用同一帧不会改变判定结果，却省掉一次被节流的截图。
+            warn_frame = Image.fromarray(frame).convert("L")
+            if frame.ndim == 3 and (sinner_bbox := get_sinner_bbox()) is not None:
+                black_out_red(frame, sinner_bbox)
             auto.screenshot = Image.fromarray(frame).convert("L")
             if self._click_first_hit(self.SUCCESS_LEVEL_ASSETS, now):
                 return True
-
-        # 极高/高/一般三档都没命中：重新截屏（不再处理红色部分），按原流程找低/极低
-        auto.take_screenshot()
-        if self._click_first_hit(self.WARN_LEVEL_ASSETS, now):
-            return True
+            auto.screenshot = warn_frame
+            if self._click_first_hit(self.WARN_LEVEL_ASSETS, now):
+                return True
 
         return self.decision_event_handling_ocr(now=now)
 
@@ -75,8 +100,16 @@ class EventHandling:
 
         order = 0
         try:
-            ocr_data = auto.find_text_element("", only_text=True)
+            # 成功率文字都在罪人栏内，先只在 all_sinner_bbox 里识别，避免整屏 OCR。
+            # 该 bbox 与判定点击无关（本函数只用识别结果排序，不用 OCR 坐标），
+            # 也不存在坐标偏移问题。
+            ocr_data = auto.find_text_element("", my_crop=get_sinner_bbox(), only_text=True)
             levels = extract_levels(ocr_data or [])
+            if not levels:
+                # 兜底：分辨率/语言导致的版面差异使成功率文字跑到栏外时，退回整屏识别
+                log.debug("罪人栏内未识别到事件成功率，回退整屏 OCR")
+                ocr_data = auto.find_text_element("", only_text=True)
+                levels = extract_levels(ocr_data or [])
             order = next(
                 (levels.index(level) for level in self.SUCCESS_LEVEL_PRIORITY if level in levels),
                 0,
@@ -127,7 +160,12 @@ def black_out_red(frame_rgb, bbox):
     只抹高饱和红（H≈1°，OpenCV 8bit H=角度/2 即 ≤4 或 ≥175）：金橙系徽章
     （极高/高/一般）H≈18~23°，不会被抹。bbox 外区域保持原样。
     """
-    roi = frame_rgb[bbox[1] : bbox[3], bbox[0] : bbox[2]]
+    height, width = frame_rgb.shape[:2]
+    left, top = max(int(bbox[0]), 0), max(int(bbox[1]), 0)
+    right, bottom = min(int(bbox[2]), width), min(int(bbox[3]), height)
+    if right <= left or bottom <= top:
+        return
+    roi = frame_rgb[top:bottom, left:right]
     hsv = cv2.cvtColor(roi, cv2.COLOR_RGB2HSV)
     red = ((hsv[:, :, 0] <= 4) | (hsv[:, :, 0] >= 175)) & (hsv[:, :, 1] >= 90)
     roi[red] = 0
