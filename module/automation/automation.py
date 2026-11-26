@@ -15,6 +15,7 @@ from PIL.Image import Image
 
 from utils.image_utils import ImageUtils
 from utils.path_manager import path_manager
+from utils.perf import STAGE_MATCH, STAGE_OCR, STAGE_SCREENSHOT, perf
 from utils.singletonmeta import SingletonMeta
 
 from ..config import cfg
@@ -379,7 +380,9 @@ class Automation(metaclass=SingletonMeta):
                     time.sleep(wait_time)
 
                 with self._screenshot_lock:
+                    capture_start = time.perf_counter()
                     result = ScreenShot.take_screenshot(gray)
+                    perf.add(STAGE_SCREENSHOT, time.perf_counter() - capture_start)
                     self._remember_screenshot(result)
                 if result:
                     self.screenshot = result
@@ -568,12 +571,12 @@ class Automation(metaclass=SingletonMeta):
                 return ocr_dict[text]
         return False
 
-    def _run_ocr_for_text(self, my_crop=None, only_text=False, additional_stack=0):
+    def _run_ocr_for_text(self, my_crop=None, only_text=False, additional_stack=0, fast_ocr=False):
         if my_crop is not None:
             cropped_image = self.screenshot.crop(my_crop)
-            ocr_result = ocr.run(cropped_image)
+            ocr_result = self._timed_ocr(cropped_image, fast_ocr)
         else:
-            ocr_result = ocr.run(self.screenshot)
+            ocr_result = self._timed_ocr(self.screenshot, fast_ocr)
 
         if not ocr_result.txts:
             return False if only_text else {}
@@ -621,6 +624,7 @@ class Automation(metaclass=SingletonMeta):
         my_crop=None,
         all_text=False,
         additional_stack=0,
+        fast_ocr=False,
     ):
         """
         按当前语言状态查找中英文文本，并在语言未知时用命中结果同步语言。
@@ -641,10 +645,16 @@ class Automation(metaclass=SingletonMeta):
         Returns:
             文本命中结果，返回格式同 find_text_element；未命中返回 False。
         """
-        ocr_dict = self._run_ocr_for_text(my_crop=my_crop, additional_stack=additional_stack)
+        ocr_dict = self._run_ocr_for_text(
+            my_crop=my_crop, additional_stack=additional_stack, fast_ocr=fast_ocr
+        )
         if ocr_dict == {}:
             return False
 
+        return self._match_language_dict(zh_text, en_text, ocr_dict, all_text, additional_stack)
+
+    def _match_language_dict(self, zh_text, en_text, ocr_dict, all_text=False, additional_stack=0):
+        """在已有的 OCR 结果里按语言状态匹配关键词（不再触发 OCR）。"""
         if path_manager.current_language == "zh_cn":
             return self._find_target_in_ocr_dict(zh_text, ocr_dict, all_text=all_text)
         if path_manager.current_language == "en":
@@ -664,13 +674,68 @@ class Automation(metaclass=SingletonMeta):
 
         return False
 
-    def find_text_element(self, target, my_crop=None, all_text=False, only_text=False, additional_stack=0):
+    def match_language_text(self, zh_text, en_text, texts, all_text=False, additional_stack=0):
+        """在已识别出的一批文本里按语言匹配关键词，不触发新的 OCR。
+
+        texts 一般来自 ocr_text_groups()。多行会被拼成一段再匹配，这样卡包名被 OCR
+        拆成两行（如 "Nest, Workshop, and" + "Technology"）时仍能命中长关键词。
+        """
+        merged = " ".join(text for text in texts if text).strip()
+        if not merged:
+            return False
+        return self._match_language_dict(
+            zh_text, en_text, {merged: [0, 0]}, all_text, additional_stack
+        )
+
+    def _timed_ocr(self, image, fast_ocr: bool = False):
+        """执行 OCR 并累计耗时。fast_ocr 用于只含大号文字的局部区域。"""
+        start = time.perf_counter()
+        result = ocr.run_small(image) if fast_ocr else ocr.run(image)
+        perf.add(STAGE_OCR, time.perf_counter() - start)
+        return result
+
+    def ocr_text_groups(self, crops, fast_ocr: bool = True):
+        """一次 OCR 覆盖多个裁剪区域的并集，再把文本按坐标分配给各区域。
+
+        镜牢选卡包时原先每张卡各自 OCR 一次（每张 0.8~1s），改成整排一次识别后
+        按 x 坐标归属，识别次数从 N 次降到 1 次。
+
+        Returns:
+            list[list[str]]：与 crops 一一对应的文本列表；识别失败时返回空列表的列表。
+        """
+        groups: list[list[str]] = [[] for _ in crops]
+        if not crops or self.screenshot is None:
+            return groups
+
+        left = int(min(crop[0] for crop in crops))
+        top = int(min(crop[1] for crop in crops))
+        right = int(max(crop[2] for crop in crops))
+        bottom = int(max(crop[3] for crop in crops))
+        if right <= left or bottom <= top:
+            return groups
+
+        result = self._timed_ocr(self.screenshot.crop((left, top, right, bottom)), fast_ocr)
+        if not getattr(result, "txts", None):
+            return groups
+
+        for index, box in enumerate(result.boxes):
+            center_x = (box[0][0] + box[2][0]) / 2 + left
+            center_y = (box[0][1] + box[2][1]) / 2 + top
+            for group_index, crop in enumerate(crops):
+                if crop[0] <= center_x <= crop[2] and crop[1] <= center_y <= crop[3]:
+                    groups[group_index].append(result.txts[index])
+                    break
+        return groups
+
+    def find_text_element(self, target, my_crop=None, all_text=False, only_text=False, additional_stack=0, fast_ocr=False):
         """
         寻找文本元素所在的坐标位置。
 
         str/list 目标返回坐标；dict 目标返回 TextMatchResult。
         """
-        ocr_result = self._run_ocr_for_text(my_crop=my_crop, only_text=only_text, additional_stack=additional_stack)
+        ocr_result = self._run_ocr_for_text(
+            my_crop=my_crop, only_text=only_text, additional_stack=additional_stack, fast_ocr=fast_ocr
+        )
         if only_text:
             return ocr_result
         return self._find_target_in_ocr_dict(target, ocr_result, all_text=all_text)
@@ -758,6 +823,14 @@ class Automation(metaclass=SingletonMeta):
         self._unavailable_feature_templates.clear()
         gc.collect()  # 强制垃圾回收，清理内存
         log.debug("图片缓存已清除", stacklevel=2)
+
+    @staticmethod
+    def _timed_match(screenshot, template, bbox, model):
+        """执行模板匹配并累计耗时，便于定位"匹配"这一类卡顿。"""
+        start = time.perf_counter()
+        result = ImageUtils.match_template(screenshot, template, bbox, model)
+        perf.add(STAGE_MATCH, time.perf_counter() - start)
+        return result
 
     def _load_template_for_path(self, target: str, target_path: str, cacheable: bool):
         cache_key = (target, target_path)
@@ -877,7 +950,7 @@ class Automation(metaclass=SingletonMeta):
                 template, bbox = self._load_template_for_path(target, loaded_path, cacheable)
                 if template is None:
                     continue
-                center, matchVal = ImageUtils.match_template(screenshot, template, bbox, model)
+                center, matchVal = self._timed_match(screenshot, template, bbox, model)
                 matched = self._is_valid_match(matchVal, threshold)
                 if 0.70 < matchVal < 0.90 and int(matchVal * 1000 + 1e-9) % 10 >= 5:
                     match_fmt = ".3f"
