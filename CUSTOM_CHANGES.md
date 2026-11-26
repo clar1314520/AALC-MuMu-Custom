@@ -67,11 +67,38 @@
 
 冲突风险：高（`mirror.py`、`select_theme_pack.py` 是上游迭代最频繁的两个文件）。
 
+### fix(enkephalin) — 兑换开关拆分 + 修复空跑换饼
+
+- `module/config/config_typing.py` / `assets/config/config.example.yaml`
+  - `skip_enkephalin` 拆为 `skip_lunacy_exchange`（禁止狂气换体）与
+    `skip_stamina_exchange`（禁止体力换饼），两者互不影响。
+  - `config_version` 提升到 `1795737600`。
+- `module/config/config.py`：`_old_version_cfg_upgrade` 增加迁移，旧 `skip_enkephalin`
+  的值按「体力换饼」语义迁移到 `skip_stamina_exchange`，并把旧键移除。
+- `tasks/base/make_enkephalin_module.py`
+  - `make_enkephalin_module` 新增 `convert` 参数：`False` 时只负责打开脑啡肽面板，
+    不点「全部换入」。供「禁止体力换饼但允许狂气换体」的场景使用。
+  - `lunacy_to_enkephalin` 入口新增两个 guard：`times <= 0` 直接返回（修复选「不换」
+    仍会开面板白跑一次换饼的 bug）、`skip_lunacy_exchange` 为真直接返回。
+  - 结尾的 `make_enkephalin_module(skip=False)` 改为 `make_enkephalin_module()`，
+    改为遵循设置。
+- `tasks/base/script_task_scheme.py`：启动提示改为分别报告两个开关。
+- `app/page_card.py` / `i18n/myapp_en.ts`：原来的「不自动兑换脑啡肽 (?)」换成两个
+  独立勾选框「禁止狂气换体」「禁止体力换饼」，文案与提示都写明互不影响。
+
+有意保留的 `skip=False`：`tasks/tools/production_module.py` 的两处调用属于工具页
+「自动生产」，由用户手动触发且目的就是换饼，不受自动兑换开关约束。
+
+冲突风险：中。`module/config/config_typing.py` 与 `config.example.yaml` 必须成对修改，
+否则 `tests/test_config_schema.py` 会直接失败（这也是护栏）。合并上游时若上游加了新的
+配置项或新的迁移块，注意 `_old_version_cfg_upgrade` 尾部与 `config_version` 数值。
+
 ### test `8ce623b` — 回归测试（新增文件，无冲突）
 
 - `tests/unit/module/automation/test_screenshot_reuse.py`
 - `tests/unit/tasks/event/test_decision_frame.py`（1600x900 合成画面）
 - `tests/unit/tasks/mirror/test_get_floor.py`
+- `tests/unit/tasks/base/test_enkephalin_exchange.py`（两个兑换开关与迁移）
 
 ### 本地环境备注
 
@@ -99,6 +126,7 @@ uv run --no-sync ruff check tasks/mirror tasks/event module/automation
 3. `tasks/event/event_handling.py`
 4. `module/automation/automation.py`
 5. `tasks/mirror/get_floor.py`
+6. `module/config/config_typing.py` + `assets/config/config.example.yaml`（必须成对改）
 
 处理建议：上述文件冲突时优先采用上游版本，再按本文件的改动清单逐条把本地意图补回去
 （每条的意图和判据都写在上面对应小节），最后用测试与一次完整镜牢跑图确认。
@@ -111,3 +139,7 @@ uv run --no-sync ruff check tasks/mirror tasks/event module/automation
 - 判定页：选的罪人是否符合成功率高低，是否点空/点错位置
 - 闸层：日志中「楼层识别结果」是否与实际楼层一致（重点确认没有少数 CLEAR）
 - 日志耗时：`结束执行 选择镜牢主题包 耗时` 应明显低于改动前
+- 兑换开关：分别勾选两项各跑一次，确认
+  - 勾「禁止狂气换体」→ 日志出现「设置了禁止狂气换体」，游戏内狂气数值不变
+  - 勾「禁止体力换饼」→ 日志出现「设置了禁止体力换饼」，镜牢开局不再弹脑啡肽面板
+  - 狂气换体下拉框选「不换」→ 日志出现「狂气换体次数为 0」，且完全不操作面板
