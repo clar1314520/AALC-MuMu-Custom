@@ -638,6 +638,7 @@ class Battle:
         gear_left: tuple,
         skill_nums: int,
         custom_tune: Optional[Callable[[list, int, int, float], list]] = None,
+        y_offset: float = 175,
     ) -> None:
         """计算划线的技能位置(也是守备的位置)
         专门写一个方便修改
@@ -646,11 +647,11 @@ class Battle:
         scale: float = cfg.set_win_size / 1440
         skill_size: float = 161 * scale
         x_offset: float = 220 - 4.5 * skill_nums
-        # 行高：以 gear_left 为基准往下 250*scale。注意这个值是"按住齿轮、技能栏
-        # 展开后"的行高——展开时卡片变大、罪人头像被压下，250*scale 正好落在卡片上；
-        # 没展开时同一坐标会落在罪人头像上（所以拖拽必须先按住齿轮等展开，
-        # 见 _chain_battle / _defense_this_round 里的 hold_before）。
-        y_offset: float = 250
+        # 行高（给"技能栏展开后"的两排卡片）：实测 1600×900 下上排中心 ≈ gear_left.y
+        # + 50*scale、下排中心 ≈ +125*scale，两排间距 78px 正好是 125*scale。
+        # 没展开时同一坐标会落在罪人头像上，所以划线前必须按住齿轮等展开；
+        # "点罪人头像切成守备"那一步要用未展开的 250*scale，单独传参。
+        y_offset: float = 175
 
         for index in range(skill_nums):
             pos = [
@@ -813,21 +814,23 @@ class Battle:
 
             skill_nums = int((bbox[2] - bbox[0]) / (145 * scale))
 
-            skill_list = []
-            Battle._calculate_skills_position(skill_list, gear_left, skill_nums)
+            # 第一步：点每个罪人头像，把该角色的技能替换成守备。
+            # 此时技能栏还没展开，头像行用 250*scale；划线行用默认（展开态下排）。
+            portraits = []
+            Battle._calculate_skills_position(portraits, gear_left, skill_nums, y_offset=250)
 
-            # 第一步：点每个罪人头像，把该角色的技能替换成守备（此时技能栏还没展开，
-            # 250*scale 正好落在最下面那排罪人头像上）
-            # 点每个罪人头像切换成守备。间隔压到 0.12s 以上：太密游戏会吞点击，
-            # 没切成守备的角色就会沿用普通技能（"没全部守备到"）。
+            # 间隔压到 0.12s 以上：太密游戏会吞点击，没切成守备的角色会沿用普通技能。
             click_gap = max(0.12, cfg.mouse_action_interval)
-            for skill in skill_list:
+            for skill in portraits:
                 auto.mouse_click(skill[0], skill[1])
                 if cfg.simulator:
                     sleep(click_gap)
                 else:
                     sleep(click_gap / 1.5)
 
+            # 第二步：划线走展开态的下排（守备就排在那里）
+            skill_list = []
+            Battle._calculate_skills_position(skill_list, gear_left, skill_nums)
             skill_list.insert(0, gear_left)
             skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale])
 

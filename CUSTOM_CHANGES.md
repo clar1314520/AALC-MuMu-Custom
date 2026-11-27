@@ -431,3 +431,16 @@ uv run --no-sync ruff check tasks/mirror tasks/event module/automation
   盲点落空时不再干等一整秒（观感上"像在识别"）。
 - `mouse_drag_link` 新增 `after_hold` 回调：按住展开后回调一次，供探针抓"展开态"的帧
   （`logs/battle_probe.on` 存在时才写文件），用于继续校准技能栏几何。
+
+### fix(battle) — 按"展开态"实测帧重标两排技能行
+
+探针在真机抓到展开态帧（`logs/battle_probe/*_expanded.png`）：按住齿轮展开后是**两排卡片**，
+上排中心 ≈ `gear_left.y + 50*scale`、下排中心 ≈ `+125*scale`（间距 78px = 125*scale）。
+原代码基准行是 `+125*scale - 125*scale + 250*scale = +78` 的落点 **753**，正好卡在两排之间的缝里，
+所以总有技能"划不到"。
+
+- `_calculate_skills_position` 增加 `y_offset` 参数，默认 175（= 展开态上排）；
+  `_chain_battle` 的基准行由此变成 `gear_left.y + 50*scale`（上排）、
+  下层 `+125*scale` 正好落到下排中心。
+- `_defense_this_round`：点罪人头像仍用 `y_offset=250`（那一刻技能栏还没展开，头像在 250 那行）；
+  划线另建一份默认（展开态下排）的坐标。
