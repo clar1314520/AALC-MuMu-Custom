@@ -331,6 +331,7 @@ class ConfigModel(BaseModel):
     """截图间隔时间"""
 
     mouse_action_interval: float
+    skill_row_hold: float
     """鼠标操作间隔时间"""
 
     mouse_down_duration: float

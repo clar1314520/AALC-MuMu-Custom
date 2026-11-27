@@ -1303,7 +1303,13 @@ class MumuControl(AbstractInput):
         return 0, 0
 
     def mouse_drag_link(
-        self, position: list, drag_time=0.25, min_distance=10, move_back=False, hold_before=0.0
+        self,
+        position: list,
+        drag_time=0.25,
+        min_distance=10,
+        move_back=False,
+        hold_before=0.0,
+        after_hold=None,
     ) -> None:
         """鼠标从指定位置拖动到指定位置
         Args:
@@ -1318,6 +1324,9 @@ class MumuControl(AbstractInput):
         self.down(position[0][0], position[0][1])
         if hold_before > 0:
             time.sleep(hold_before)
+        if after_hold is not None:
+            # 按住之后、移动之前回调一次：这时技能栏已经展开，正好用来抓展开态的帧
+            after_hold()
         p = (position[0][0], position[0][1])
         for pos in position[1:]:
             points = insert_swipe(p0=(p[0], p[1]), p3=(pos[0], pos[1]), min_distance=min_distance)

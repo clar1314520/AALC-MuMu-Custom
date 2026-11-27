@@ -23,7 +23,16 @@ from utils.utils import find_skill3
 DEFENSE_FOR_SOLO_TURN_LIMIT = 5
 # 按住起点齿轮后，游戏会展开技能栏（卡片变大、罪人头像被压下），这段动画不完，
 # 后面算出来的技能坐标就全落在头像行上——"划了但没选中"的根因。
+# 实际时长取配置项 skill_row_hold（高级设置里可调），这里只是兜底默认值。
 SKILL_ROW_HOLD = 0.45
+
+
+def _skill_row_hold() -> float:
+    try:
+        value = float(cfg.skill_row_hold)
+    except (TypeError, ValueError):
+        return SKILL_ROW_HOLD
+    return max(0.1, value)
 
 # 技能栏几何校准开关：设置 AALC_BATTLE_PROBE=1 后，每次划线都会把当帧和点击点存到
 # logs/battle_probe/，用来在真实帧上核对格距、行高。正常跑不会写文件。
@@ -206,7 +215,8 @@ class Battle:
                 msg = f"小指良单通连续防御（剩余{defense_for_solo_state.remaining_turns}回合），开始战斗"
             else:
                 msg = "第一回合全员防御，开始战斗"
-            if self._defense_this_round() is False:
+            defense_drawn = self._defense_this_round()
+            if defense_drawn is False:
                 if use_limited_defense:
                     msg = "小指良单通连续防御失败，本回合改为P+Enter"
                 else:
@@ -214,17 +224,25 @@ class Battle:
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
-            elif use_limited_defense:
-                defense_for_solo_state.consume_turn()
-                limited_defense_succeeded = True
-                log.info(f"小指良单通连续防御已执行，剩余 {defense_for_solo_state.remaining_turns} 回合")
-                if defense_for_solo_state.remaining_turns == 0:
-                    log.info("本次镜牢的连续防御已完成，后续回合恢复普通战斗操作")
+            else:
+                # 守备已经排好了，直接回车开打。这里千万不能再按 P：P 是"自动选技能"，
+                # 会把刚排好的守备整排覆盖掉——"守备没全守到就按 P 敷衍"就是这么来的。
+                auto.key_press("enter")
+                if use_limited_defense:
+                    defense_for_solo_state.consume_turn()
+                    limited_defense_succeeded = True
+                    log.info(f"小指良单通连续防御已执行，剩余 {defense_for_solo_state.remaining_turns} 回合")
+                    if defense_for_solo_state.remaining_turns == 0:
+                        log.info("本次镜牢的连续防御已完成，后续回合恢复普通战斗操作")
             sleep(2)
             if not auto.find_element("battle/pause_assets.png", take_screenshot=True):
-                auto.key_press("p")
-                sleep(0.5)
-                auto.key_press("enter")
+                if defense_drawn:
+                    # 守备排好但回合还没起来：再补一次回车，不要用 P 覆盖
+                    auto.key_press("enter")
+                else:
+                    auto.key_press("p")
+                    sleep(0.5)
+                    auto.key_press("enter")
         elif self.defense_all_time:
             if auto.find_element("battle/gear_left.png", threshold=0.9):
                 msg = "使用全员防御模式开始战斗"
@@ -763,7 +781,11 @@ class Battle:
                 f"prioritize={prioritize_skill_3}",
             )
 
-            auto.mouse_drag_link(skill_list, hold_before=SKILL_ROW_HOLD)
+            auto.mouse_drag_link(
+                skill_list,
+                hold_before=_skill_row_hold(),
+                after_hold=lambda pts=skill_list: _battle_probe_dump("expanded", pts, "按下展开后的落点"),
+            )
 
             auto.mouse_to_blank()
 
@@ -796,12 +818,15 @@ class Battle:
 
             # 第一步：点每个罪人头像，把该角色的技能替换成守备（此时技能栏还没展开，
             # 250*scale 正好落在最下面那排罪人头像上）
+            # 点每个罪人头像切换成守备。间隔压到 0.12s 以上：太密游戏会吞点击，
+            # 没切成守备的角色就会沿用普通技能（"没全部守备到"）。
+            click_gap = max(0.12, cfg.mouse_action_interval)
             for skill in skill_list:
                 auto.mouse_click(skill[0], skill[1])
                 if cfg.simulator:
-                    sleep(cfg.mouse_action_interval)
+                    sleep(click_gap)
                 else:
-                    sleep(cfg.mouse_action_interval // 1.5)
+                    sleep(click_gap / 1.5)
 
             skill_list.insert(0, gear_left)
             skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale])
@@ -812,7 +837,11 @@ class Battle:
                 f"skill_nums={skill_nums} gear_left={gear_left} gear_right={gear_right} bbox={bbox}",
             )
 
-            auto.mouse_drag_link(skill_list, hold_before=SKILL_ROW_HOLD)
+            auto.mouse_drag_link(
+                skill_list,
+                hold_before=_skill_row_hold(),
+                after_hold=lambda pts=skill_list: _battle_probe_dump("expanded", pts, "按下展开后的落点"),
+            )
 
             auto.mouse_to_blank(move_back=move_back)
 

@@ -140,6 +140,17 @@ class PageSetWindows(PageCard):
             "mouse_action_interval",
             double=True,
         )
+        self.skill_row_hold = LabelWithSpinBox(
+            QT_TRANSLATE_NOOP("LabelWithSpinBox", "技能栏按住时长"),
+            "skill_row_hold",
+            double=True,
+            min_value=0.1,
+            min_step=0.05,
+            tips=QT_TRANSLATE_NOOP(
+                "LabelWithSpinBox",
+                "战斗划线前在左侧齿轮上按住的秒数，用于等技能栏展开。调小更快，但太小会导致技能/守备划不到",
+            ),
+        )
         self.mouse_down_duration = LabelWithSpinBox(
             QT_TRANSLATE_NOOP("LabelWithSpinBox", "鼠标按下持续时间"),
             "mouse_down_duration",
@@ -162,6 +173,7 @@ class PageSetWindows(PageCard):
 
         self.vbox_advanced.addWidget(self.screenshot_interval)
         self.vbox_advanced.addWidget(self.mouse_action_interval)
+        self.vbox_advanced.addWidget(self.skill_row_hold)
         self.vbox_advanced.addWidget(self.mouse_down_duration)
         self.vbox_advanced.addWidget(self.use_post_message)
 
@@ -172,6 +184,7 @@ class PageSetWindows(PageCard):
         self.screenshot_interval.retranslateUi()
         self.mouse_action_interval.retranslateUi()
         self.mouse_down_duration.retranslateUi()
+        self.skill_row_hold.retranslateUi()
         self.use_post_message.retranslateUi()
 
         super().retranslateUi()

@@ -1926,6 +1926,16 @@ Entering a formation code will overwrite your current team configuration.</trans
         <translation>Mouse press duration</translation>
     </message>
     <message>
+        <location filename="../app/page_card.py" line="143"/>
+        <source>技能栏按住时长</source>
+        <translation>Skill bar hold time</translation>
+    </message>
+    <message>
+        <location filename="../app/page_card.py" line="149"/>
+        <source>战斗划线前在左侧齿轮上按住的秒数，用于等技能栏展开。调小更快，但太小会导致技能/守备划不到</source>
+        <translation>Seconds to hold the left gear before drawing the skill swipe line; waits for the skill bar to expand. Smaller is faster but may miss skills.</translation>
+    </message>
+    <message>
         <location filename="../app/page_card.py" line="149"/>
         <source>仅在使用异步方法进行鼠标输入时生效，单位为秒，每次鼠标按下都会增加对应的延迟</source>
         <translation>Only effective when using asynchronous method for mouse input, unit is seconds, each mouse press will add corresponding delay</translation>

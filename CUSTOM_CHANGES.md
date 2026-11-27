@@ -413,3 +413,21 @@ uv run --no-sync ruff check tasks/mirror tasks/event module/automation
   几何量（`y_offset=250`、下层 `+125*scale`、收尾点 `+150*scale`）全部还原上游原值。
 - 保留 `_snap_indexes_to_slots`（3 技能索引按最近格吸附，替代 145/161 混用的除法）。
 - 保留 `gear_right` 阈值放宽到 0.45（实战帧只有 0.50~0.58，5 次里 3 次因此放弃改按 P）。
+
+### feat(battle/shop) — 按住时长可配置、守备不再被 P 覆盖、忽略商店直接离开、盲点更果断
+
+- **按住时长可调**：新增配置 `skill_row_hold`（默认 0.45s，范围 ≥0.1，步进 0.05），
+  高级设置里出现「技能栏按住时长」 SpinBox（带提示）。`_skill_row_hold()` 读配置，
+  失败回落到常量。
+- **守备被 P 覆盖的真 bug**：`_battle_operation` 在守备划完后 `sleep(2)`，如果没检测到
+  pause 图标就按 **P + Enter**——P 是"自动选技能"，会把刚排好的守备整排覆盖，
+  于是出现"没全部守备到就按 P 敷衍"。改为：守备成功就直接 `enter` 开打，检测不到
+  pause 也只补 `enter`，不再按 P（只有守备失败才走 P）。
+- `_defense_this_round`：点头像的间隔下限提到 0.12s（原来跟着 0.06s 的全局间隔，
+  太密会被游戏吞掉，导致部分角色没切成守备）。
+- `in_shop`：忽略商店的楼层不再 `break` 丢回主循环等它重新识别，直接
+  「点离开 → 出现确认立刻点 → 回路线图」，去掉那一段"顿一下"。
+- `search_road`：`BLIND_ENTER_TIMEOUT` 1.0 → 0.65s、回退找 Bus 的重试间隔 1s → 0.4s，
+  盲点落空时不再干等一整秒（观感上"像在识别"）。
+- `mouse_drag_link` 新增 `after_hold` 回调：按住展开后回调一次，供探针抓"展开态"的帧
+  （`logs/battle_probe.on` 存在时才写文件），用于继续校准技能栏几何。

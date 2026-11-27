@@ -1408,11 +1408,21 @@ class Shop:
         perf.reset()  # 每次进商店重新统计，避免带上道中的耗时
         try:
             while True:
-                # 忽略楼层商店的情况
+                # 忽略楼层商店的情况：不停顿，直接点离开 → 出现确认立刻点，
+                # 然后马上回路线图（原来是 break 出去靠主循环再认一次，看起来"顿一下"）
                 if 1 <= layer <= 5 and self.ignore_shop[layer - 1]:
-                    msg = f"第{layer}楼层商店被忽略"
-                    log.info(msg)
-                    break
+                    log.info(f"第{layer}楼层商店被忽略，直接离开")
+                    for _ in range(3):
+                        if auto.take_screenshot() is None:
+                            continue
+                        if auto.click_element("mirror/shop/leave_shop_confirm_assets.png"):
+                            break
+                        if auto.click_element("mirror/shop/leave_assets.png"):
+                            self._wait_leave_confirm()
+                            break
+                        if auto.find_element("mirror/road_in_mir/legend_assets.png"):
+                            break
+                    return
 
                 # 自动截图
                 if auto.take_screenshot() is None:

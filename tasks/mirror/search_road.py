@@ -19,8 +19,9 @@ ROAD_ROW_GAP = 437
 
 # 选中节点后"进入"按钮出现的等待上限：出现即点，不用固定等待
 ENTER_BUTTON_TIMEOUT = 1.5
-# 盲点下一节点（用上一帧的 Bus 位置推算坐标）的验证窗口，短一点以便尽快回退
-BLIND_ENTER_TIMEOUT = 1.0
+# 盲点下一节点（用上一帧的 Bus 位置推算坐标）的验证窗口。实测"进入"按钮在点完节点后
+# 约 0.3s 就出现，1.0s 的窗口只会在盲点落空时白等一整秒（看起来像在"识别"），压到 0.65s。
+BLIND_ENTER_TIMEOUT = 0.65
 # 盲点/回退点击节点时允许的最小截图间隔。"进入"按钮在点击后 ~0.3s 就画好了，
 # 按全局 0.25s 的节流去轮询等于每步多等一个周期，这里压到 0.08s。
 ENTER_POLL_MIN_INTERVAL = 0.08
@@ -220,7 +221,7 @@ class MirrorMap:
                 self._bus_position = bus_position
                 self._bus_is_natural = False
                 return list(_jitter_position(bus_position[0] + offset[0], bus_position[1] + offset[1]))
-            sleep(1)
+            sleep(0.4)
         return None
 
     def refresh_floor(self, floor, reset=False):
