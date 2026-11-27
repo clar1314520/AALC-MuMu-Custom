@@ -36,6 +36,22 @@ class PathManager(metaclass=SingletonMeta):
             self.current_language = None
 
         self.active_paths = self.DEFAULT_ACTIVE_PATHS.copy()
+
+        # 高级设置里指定了游戏语言就直接采用：省掉"靠截图猜语言"那一步，
+        # 也避免前几帧因为语言未定而同时匹配 zh_cn / en 两套模板。
+        try:
+            from module.config import cfg
+
+            forced_language = getattr(cfg, "game_language", "auto")
+        except Exception:
+            forced_language = "auto"
+        if forced_language in ("zh_cn", "en"):
+            self.current_language = forced_language
+            if forced_language == "en":
+                self.is_zh_cn_eliminated = True
+                self.active_paths = [path for path in self.active_paths if not path.endswith("/zh_cn")]
+            log.debug(f"按设置固定游戏语言: {forced_language}")
+
         if self.is_dark_eliminated:
             self.active_paths = [path for path in self.active_paths if not path.startswith("dark/")]
         if self.is_zh_cn_eliminated:

@@ -140,6 +140,15 @@ class PageSetWindows(PageCard):
             "mouse_action_interval",
             double=True,
         )
+        self.game_language = LabelWithComboBox(
+            QT_TRANSLATE_NOOP("LabelWithComboBox", "游戏语言"),
+            "game_language",
+            game_language_options,
+            tips=QT_TRANSLATE_NOOP(
+                "LabelWithComboBox",
+                "在游戏里用的是什么语言就选什么；选好后不再靠截图判断语言，省掉一次识别",
+            ),
+        )
         self.skill_row_hold = LabelWithSpinBox(
             QT_TRANSLATE_NOOP("LabelWithSpinBox", "技能栏按住时长"),
             "skill_row_hold",
@@ -173,6 +182,7 @@ class PageSetWindows(PageCard):
 
         self.vbox_advanced.addWidget(self.screenshot_interval)
         self.vbox_advanced.addWidget(self.mouse_action_interval)
+        self.vbox_advanced.addWidget(self.game_language)
         self.vbox_advanced.addWidget(self.skill_row_hold)
         self.vbox_advanced.addWidget(self.mouse_down_duration)
         self.vbox_advanced.addWidget(self.use_post_message)
@@ -185,6 +195,7 @@ class PageSetWindows(PageCard):
         self.mouse_action_interval.retranslateUi()
         self.mouse_down_duration.retranslateUi()
         self.skill_row_hold.retranslateUi()
+        self.game_language.retranslateUi()
         self.use_post_message.retranslateUi()
 
         super().retranslateUi()

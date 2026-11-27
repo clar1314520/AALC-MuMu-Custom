@@ -21,6 +21,11 @@ page_name_and_index = {
     "mirror": 4,
 }
 
+game_language_options = {
+    "自动识别": "auto",
+    "中文": "zh_cn",
+    "英文": "en",
+}
 set_win_size_options = {
     "1920*1080": 1080,
     "2560*1440": 1440,

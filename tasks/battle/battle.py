@@ -208,9 +208,10 @@ class Battle:
             first_turn and defense_first_round and not defense_for_solo_used_this_turn
         )
         limited_defense_succeeded = False
-        if (use_limited_defense or use_first_round_defense) and auto.find_element(
-            "battle/gear_left.png", threshold=0.8
-        ):
+        # 守备回合的优先级最高：不再先"预判齿轮"再决定要不要守备——预判一失败就会掉到
+        # 3 技能分支，把刚点成守备的那排跳过去（看起来就是"5 回合还在选 3 技能"）。
+        # 齿轮找不找得到交给 _defense_this_round 自己判断，失败就退回 P+Enter。
+        if use_limited_defense or use_first_round_defense:
             if use_limited_defense:
                 msg = f"小指良单通连续防御（剩余{defense_for_solo_state.remaining_turns}回合），开始战斗"
             else:

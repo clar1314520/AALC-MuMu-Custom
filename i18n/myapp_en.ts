@@ -1927,6 +1927,16 @@ Entering a formation code will overwrite your current team configuration.</trans
     </message>
     <message>
         <location filename="../app/page_card.py" line="143"/>
+        <source>游戏语言</source>
+        <translation>Game language</translation>
+    </message>
+    <message>
+        <location filename="../app/page_card.py" line="148"/>
+        <source>在游戏里用的是什么语言就选什么；选好后不再靠截图判断语言，省掉一次识别</source>
+        <translation>Pick the language used in-game; once set, the language is no longer detected by screenshot.</translation>
+    </message>
+    <message>
+        <location filename="../app/page_card.py" line="143"/>
         <source>技能栏按住时长</source>
         <translation>Skill bar hold time</translation>
     </message>

@@ -444,3 +444,14 @@ uv run --no-sync ruff check tasks/mirror tasks/event module/automation
   下层 `+125*scale` 正好落到下排中心。
 - `_defense_this_round`：点罪人头像仍用 `y_offset=250`（那一刻技能栏还没展开，头像在 250 那行）；
   划线另建一份默认（展开态下排）的坐标。
+
+### feat(ui) — 高级设置可选游戏语言；守备回合严格优先于 3 技能
+
+- `app/__init__.py` / `app/page_card.py` / `config.example.yaml` / `config_typing.py`：
+  新增 `game_language`（auto / zh_cn / en）与「游戏语言」下拉框，位置在高级设置里。
+  选 zh_cn/en 后不再靠截图猜语言，也避免语言未定时同时匹配两套模板。
+- `utils/path_manager.py`：`initialize_paths()` 里若 `game_language` 已指定，直接
+  `set_language` 并淘汰 `/zh_cn` 路径，跳过语言探测。
+- `tasks/battle/battle.py`：守备回合去掉"先预判 gear_left 再决定要不要守备"的条件——
+  预判一失败就会掉进 3 技能分支，把刚点成守备的那排跳过去（"前 5 回合还在选 3 技能"）。
+  现在守备回合一定先走守备，齿轮找不到就退回 P+Enter，绝不改走 3 技能。
