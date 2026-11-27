@@ -224,6 +224,24 @@ def test_miss_disables_natural_bus(monkeypatch):
     assert mirror_map._blind_misses == 1
 
 
+def test_scan_entry_uses_visible_enter_button(monkeypatch):
+    """扫图前若"进入"按钮已经亮着，直接点它，不点 Bus、不拖图、不白等。"""
+    import importlib
+
+    search_road_module = importlib.import_module("tasks.mirror.search_road")
+    clicked = []
+
+    monkeypatch.setattr(auto, "take_screenshot", lambda *a, **k: object())
+    monkeypatch.setattr(auto, "find_element", lambda *a, **k: [1366, 686])
+    monkeypatch.setattr(auto, "mouse_action_with_pos", lambda pos, **k: clicked.append(tuple(pos)))
+    monkeypatch.setattr(
+        search_road_module, "identify_nodes", lambda *a, **k: (_ for _ in ()).throw(AssertionError("不该扫图"))
+    )
+
+    assert search_road_module.search_road_from_road_map() == (True, True)
+    assert clicked == [(1366, 686)]
+
+
 def test_refresh_floor_clears_bus_anchor():
     mirror_map = MirrorMap(floor=1)
     mirror_map._bus_position = [100, 690]

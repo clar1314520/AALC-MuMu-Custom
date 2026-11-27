@@ -29,8 +29,12 @@ ENTER_POLL_MIN_INTERVAL = 0.08
 BLIND_CLICK_JITTER = 8
 # 盲点前额外插入的随机静默（秒）。点击间隔本身已经被轮询打散，这里只补一点点。
 BLIND_CLICK_DELAY = (0.0, 0.05)
-# 楼层开始时的"点 Bus 直接进入"探针等待：几乎从不命中，只留一个很短的窗口
-NATURAL_BUS_PROBE_TIMEOUT = 0.35
+# 扫图前把 Bus 拖到左下角的验收窗口（1440 基准）。原来的窗口只有 y∈(675,700)、
+# x<150，拖拽少走几十像素就会判定不达标再拖一次，白花 1.2 秒；只要 Bus 足够靠左下、
+# 能把后面三列露出来就够了，所以放宽。
+BUS_DRAG_Y_MIN = 640
+BUS_DRAG_Y_MAX = 725
+BUS_DRAG_X_MAX = 230
 
 # 每层地图加载后 Bus 的自然屏幕位置（= 游戏把镜头对准 Bus 时的位置）。
 # 进入任意节点后画面会重新居中，Bus 回到这个位置；而为了扫全图我们会先把地图
@@ -407,20 +411,22 @@ def search_road_from_road_map(hard_mode=False):
     start_time = time.time()
     scale = cfg.set_win_size / 1440
     bus = None
+    bus_position = None
     _natural_bus_position = None
 
-    # 点一下 Bus 看能不能直接进入（地图上只剩一个节点时会命中）。这几乎从不发生，
-    # 原来要白等 0.8s，这里只留 0.35s 的窗口，反正后面还有完整扫描兜底。
-    if probe := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
-        # 此时地图还没被拖动，这就是 Bus 的自然屏幕位置
-        _natural_bus_position = list(probe)
-        auto.mouse_action_with_pos(probe, offset=True)
-        if _click_enter_immediately(NATURAL_BUS_PROBE_TIMEOUT):
-            return True, True
+    if auto.take_screenshot() is None:
+        return [], []
+    # 进入按钮已经亮着说明上一局的选择态还在，直接进去。原来这里是"点一下 Bus 再等按钮
+    # 出现"——实测 55 次扫描里那个按钮一次都没因为点 Bus 而出现，光等待就白花 0.5 秒。
+    if position := auto.find_element("mirror/road_in_mir/enter_assets.png", model="normal"):
+        auto.mouse_action_with_pos(position, offset=True, interval=0.12)
+        return True, True
 
-    if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
-        if _natural_bus_position is None:
-            _natural_bus_position = list(bus_position)
+    # 复用上面这一帧找 Bus，不再为同一屏多截一次（每次 0.3 秒）
+    if found := auto.find_element("mirror/mybus_default_distance.png"):
+        # 此时地图还没被拖动，这就是 Bus 的自然屏幕位置
+        _natural_bus_position = list(found)
+        bus_position = found
         from tasks.base.retry import check_times
 
         change_times = 5
@@ -432,7 +438,10 @@ def search_road_from_road_map(hard_mode=False):
 
                 back_init_menu()
                 return False, []
-            if 675 * scale < bus_position[1] < 700 * scale and 150 * scale > bus_position[0]:
+            if (
+                BUS_DRAG_Y_MIN * scale < bus_position[1] < BUS_DRAG_Y_MAX * scale
+                and BUS_DRAG_X_MAX * scale > bus_position[0]
+            ):
                 bus = bus_position
                 break
             dx = 80 * scale - bus_position[0]
@@ -449,7 +458,11 @@ def search_road_from_road_map(hard_mode=False):
                 bus = bus_position
                 break
 
-    bus_pos = auto.find_element("mirror/mybus_default_distance.png") or bus
+    # 拖拽循环结束时手里已经有 Bus 坐标，不必再截一帧重找（每次 0.2 秒）
+    bus_pos = bus_position or bus
+    if bus is None:
+        log.warning("未找到 Bus，无法规划路线")
+        return [], []
     all_nodes = identify_nodes(bus[0])
     if not all_nodes:  # identify_nodes() 可能返回 None（如只剩得分低于阈值的 Boss 节点）
         log.warning("未识别到地图节点，无法规划路线")
