@@ -347,7 +347,12 @@ class Automation(metaclass=SingletonMeta):
 
         return True
 
-    def take_screenshot(self, gray: bool = True, max_age: float = 0.0) -> Image | None:
+    def take_screenshot(
+        self,
+        gray: bool = True,
+        max_age: float = 0.0,
+        min_interval: float | None = None,
+    ) -> Image | None:
         """
         截取当前屏幕并返回图像对象。
         Args:
@@ -355,6 +360,9 @@ class Automation(metaclass=SingletonMeta):
             max_age (float): 允许复用最近一帧的最大年龄（秒），默认 0 表示总是重新截图。
                 仅在调用方确认这一小段时间内没有任何输入操作时使用：同一画面重复调用
                 截图会被 screenshot_interval 节流，白白多等一个间隔。
+            min_interval (float|None): 本次调用允许的最小截图间隔（秒）。用于"等某个按钮
+                出现"这类短窗口轮询：全局 screenshot_interval 是 0.25s，意味着点完节点后
+                要等满 0.25s 才看一眼画面，而"进入"按钮 0.3s 就已经画好了，白等一个周期。
         Returns:
             Image: 截取当前屏幕的图像对象
         """
@@ -374,6 +382,10 @@ class Automation(metaclass=SingletonMeta):
 
         start_time = time.time()
         screenshot_interval_time = cfg.screenshot_interval if cfg.screenshot_interval else 0.85
+        # 调用方要求更短的间隔时（等按钮出现的短窗口轮询）按更短的那个走，
+        # 否则 0.25s 的全局节流会让"点完节点看进入按钮"白等一个周期。
+        if min_interval is not None:
+            screenshot_interval_time = min(screenshot_interval_time, min_interval)
         while True:
             try:
                 if time.time() - self.last_screenshot_time < screenshot_interval_time:

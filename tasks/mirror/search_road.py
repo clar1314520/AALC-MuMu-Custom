@@ -1,4 +1,5 @@
 import heapq
+import random
 import time
 from enum import Enum
 from functools import lru_cache
@@ -20,6 +21,28 @@ ROAD_ROW_GAP = 437
 ENTER_BUTTON_TIMEOUT = 1.5
 # 盲点下一节点（用上一帧的 Bus 位置推算坐标）的验证窗口，短一点以便尽快回退
 BLIND_ENTER_TIMEOUT = 1.0
+# 盲点/回退点击节点时允许的最小截图间隔。"进入"按钮在点击后 ~0.3s 就画好了，
+# 按全局 0.25s 的节流去轮询等于每步多等一个周期，这里压到 0.08s。
+ENTER_POLL_MIN_INTERVAL = 0.08
+# 盲点坐标的随机抖动（1440 基准像素）。同一坐标被精确重复点击几千次很像脚本，
+# 加个几像素的抖动，代价是 0（节点可点范围本身有 ±70px）。
+BLIND_CLICK_JITTER = 8
+# 盲点前额外插入的随机静默（秒）。点击间隔本身已经被轮询打散，这里只补一点点。
+BLIND_CLICK_DELAY = (0.0, 0.05)
+# 楼层开始时的"点 Bus 直接进入"探针等待：几乎从不命中，只留一个很短的窗口
+NATURAL_BUS_PROBE_TIMEOUT = 0.35
+
+# 每层地图加载后 Bus 的自然屏幕位置（= 游戏把镜头对准 Bus 时的位置）。
+# 进入任意节点后画面会重新居中，Bus 回到这个位置；而为了扫全图我们会先把地图
+# 拖到角落，所以"拖拽后的坐标"只在第一步有效，第二步必须换回自然位置。
+_natural_bus_position = None
+
+
+def _jitter_position(x: float, y: float) -> tuple[float, float]:
+    """给点击坐标加一个小幅随机偏移，避免每次都在同一像素上点击。"""
+    scale = cfg.set_win_size / 1440
+    limit = BLIND_CLICK_JITTER * scale
+    return x + random.uniform(-limit, limit), y + random.uniform(-limit, limit)
 
 
 def _road_offset(direction: str) -> tuple[float, float] | None:
@@ -39,15 +62,16 @@ def _click_enter_immediately(timeout: float = ENTER_BUTTON_TIMEOUT) -> bool:
     """盯住"进入"按钮，一出现就点，点不到才等到超时。
 
     原实现是点完节点后固定 ``sleep(1.25)`` 再点一次"进入"，按钮早出来了也要干等，
-    看起来就是"点确定时犹豫一下"。这里改成有界轮询（每轮取一张新帧，约 4 次/秒）。
-    click_interval 显式压到 0.2 秒：全局 mouse_action_interval 默认 0.5 秒，会把
-    "点完节点立刻点进入"再拖慢四分之一秒。
+    看起来就是"点确定时犹豫一下"。这里改成有界轮询：截图间隔按
+    ``ENTER_POLL_MIN_INTERVAL`` 放行（全局 0.25s 节流会让每步多等一个周期），
+    点击间隔显式压到 0.12 秒（全局 mouse_action_interval 默认 0.5 秒）。
     """
     deadline = time.monotonic() + timeout
     while True:
-        if auto.click_element(
-            "mirror/road_in_mir/enter_assets.png", take_screenshot=True, interval=0.2
-        ):
+        if auto.take_screenshot(min_interval=ENTER_POLL_MIN_INTERVAL) is None:
+            continue
+        if position := auto.find_element("mirror/road_in_mir/enter_assets.png", model="normal"):
+            auto.mouse_action_with_pos(position, offset=True, interval=0.12)
             return True
         if time.monotonic() >= deadline:
             return False
@@ -63,6 +87,11 @@ class MirrorMap:
         # 上一次识别到的 Bus 屏幕坐标。路线在进入本层时就已经规划好，方向是已知的，
         # 所以后续每一步都可以用这个坐标直接算出下一节点位置，不必每步重新截图找 Bus。
         self._bus_position = None
+        # Bus 的自然屏幕位置（镜头对准 Bus 时）。进入节点后画面会重新居中回这个位置，
+        # 而扫描全图前我们会把地图拖到角落，两者不能混用。
+        self._natural_bus = None
+        # 当前 _bus_position 是否来自自然位置（用来判断未命中时该不该放弃自然位置）
+        self._bus_is_natural = False
         # 盲点命中统计：命中率低说明地图没有把 Bus 居中对齐，该回退到实时定位
         self._blind_hits = 0
         self._blind_misses = 0
@@ -80,6 +109,8 @@ class MirrorMap:
 
         if re_identify is True:
             self.floor_map, self.floor_nodes = search_road_from_road_map(hard_mode=self.hard_mode)
+            # 规划时顺手记下 Bus 的自然位置，之后每进一个节点都用它来盲点
+            self._natural_bus = _natural_bus_position
             if self.floor_map is True and self.floor_nodes is True:
                 # 已通过点击巴士直接进入节点，无路线可缓存；保留 True 会让下次 len() 报错
                 self.floor_map, self.floor_nodes = [], []
@@ -111,6 +142,7 @@ class MirrorMap:
         # 路线图在进入本层时就已经规划完毕，方向固定；直接沿用上一帧的 Bus 坐标推算下一个
         # 节点，省掉"每步重新截一张图找 Bus"（打完上一关 / 出商店接 Boss 那一步最明显）。
         if next_position := self._blind_next_position(next_step):
+            sleep(random.uniform(*BLIND_CLICK_DELAY))
             auto.mouse_click(next_position[0], next_position[1])
             if _click_enter_immediately(BLIND_ENTER_TIMEOUT):
                 self._blind_hits += 1
@@ -118,27 +150,49 @@ class MirrorMap:
                     f"盲点命中下一节点 {next_step}@({int(next_position[0])},{int(next_position[1])})"
                     f" 命中率 {self._blind_hits}/{self._blind_hits + self._blind_misses}"
                 )
+                self._after_enter()
                 return True
             if not auto.find_element("mirror/road_in_mir/legend_assets.png"):
                 # 画面上已经没有路线图了，说明其实已经进入节点，不必再找 Bus
                 self._blind_hits += 1
                 log.info(f"盲点后画面已进入节点，命中率 {self._blind_hits}/{self._blind_hits + self._blind_misses}")
+                self._after_enter()
                 return True
             self._blind_misses += 1
             log.info(
                 f"盲点未命中 {next_step}@({int(next_position[0])},{int(next_position[1])})，回退实时定位 Bus"
                 f" 命中率 {self._blind_hits}/{self._blind_hits + self._blind_misses}"
             )
+            # 自然位置被证伪（这一层可能贴边或 Bus 行不同），本层剩下的步骤老老实实实时定位，
+            # 免得每步都白撞一次
+            if self._bus_is_natural:
+                log.debug("Bus 自然位置与本层实际位置不符，后续改为实时定位")
+                self._natural_bus = None
             self._bus_position = None
+            self._bus_is_natural = False
 
         if next_position := self._get_next_position(next_step):
+            sleep(random.uniform(*BLIND_CLICK_DELAY))
             auto.mouse_click(next_position[0], next_position[1])
             if _click_enter_immediately():
+                self._after_enter()
                 return True
         if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
             if _click_enter_immediately():
+                self._after_enter()
                 return True
         return False
+
+    def _after_enter(self):
+        """进入节点后画面会重新居中 Bus，把缓存切回自然位置。
+
+        扫图时地图被拖到了左下角，拖拽后的坐标只在"进图第一步"有效；进入节点后
+        游戏会把镜头拉回 Bus 的自然位置，继续用拖拽坐标盲点必然不中（实测每次
+        未命中都发生在这一步，代价约 1.4 秒）。
+        """
+        if self._natural_bus:
+            self._bus_position = list(self._natural_bus)
+            self._bus_is_natural = True
 
     def _blind_next_position(self, direction):
         """按缓存 Bus 坐标直接算出下一节点位置；没有缓存时返回 None。"""
@@ -150,7 +204,7 @@ class MirrorMap:
         x = self._bus_position[0] + offset[0]
         y = self._bus_position[1] + offset[1]
         if 0 < x < cfg.set_win_size * 16 / 9 and 0 < y < cfg.set_win_size:
-            return [x, y]
+            return list(_jitter_position(x, y))
         return None
 
     def _get_next_position(self, direction):
@@ -160,7 +214,8 @@ class MirrorMap:
         for _ in range(3):
             if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
                 self._bus_position = bus_position
-                return [bus_position[0] + offset[0], bus_position[1] + offset[1]]
+                self._bus_is_natural = False
+                return list(_jitter_position(bus_position[0] + offset[0], bus_position[1] + offset[1]))
             sleep(1)
         return None
 
@@ -177,6 +232,8 @@ class MirrorMap:
         self.floor_map = []
         # 换层后地图会重新居中，旧的 Bus 坐标不能再用（否则可能盲点错行）
         self._bus_position = None
+        self._natural_bus = None
+        self._bus_is_natural = False
 
 
 def get_node_weight(x, y):
@@ -346,15 +403,24 @@ def search_road_farthest_distance():
 
 
 def search_road_from_road_map(hard_mode=False):
+    global _natural_bus_position
     start_time = time.time()
     scale = cfg.set_win_size / 1440
     bus = None
+    _natural_bus_position = None
 
-    if auto.click_element("mirror/mybus_default_distance.png", take_screenshot=True):
-        if _click_enter_immediately(0.8):
+    # 点一下 Bus 看能不能直接进入（地图上只剩一个节点时会命中）。这几乎从不发生，
+    # 原来要白等 0.8s，这里只留 0.35s 的窗口，反正后面还有完整扫描兜底。
+    if probe := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+        # 此时地图还没被拖动，这就是 Bus 的自然屏幕位置
+        _natural_bus_position = list(probe)
+        auto.mouse_action_with_pos(probe, offset=True)
+        if _click_enter_immediately(NATURAL_BUS_PROBE_TIMEOUT):
             return True, True
 
     if bus_position := auto.find_element("mirror/mybus_default_distance.png", take_screenshot=True):
+        if _natural_bus_position is None:
+            _natural_bus_position = list(bus_position)
         from tasks.base.retry import check_times
 
         change_times = 5

@@ -266,6 +266,33 @@ uv run --no-sync pyinstaller tools/template_tool.py --onefile --noconfirm --wind
 冲突风险：中。`in_shop.py` 的购买/刷新流程与上游耦合，冲突时按"等按钮出现而不是固定 sleep"
 的原则重写即可；`reward_card.py` 快路径是新增函数，保留上游主体再补两段调用即可。
 
+### perf(mirror/road) — 盲点抖动 + 消除"拖拽坐标"失效导致的未命中 + 更快等进入按钮
+
+实测（v8 实跑 22 次镜牢，`AALC_v8/logs/debugLog.log*`，1600×900）：寻路共 324 步、
+418s，其中 **55 次楼层扫描占 255s（61%）**；单步 0.60s（键盘与盲点一致），
+盲点未命中 9 次、每次约 2.0s。9 次未命中的点击坐标全部来自"扫图拖拽后的 Bus 位置"
+（约 (70,425)），而游戏在进入节点后会把镜头拉回 Bus 的自然位置 (586,330)。
+
+- `module/automation/automation.py`：`take_screenshot()` 补上 `min_interval` 实际生效
+  （参数上一轮已加但未落到节流里）。
+- `tasks/mirror/search_road.py`
+  - `_jitter_position()`：盲点/回退点击坐标加 ±8（1440 基准）随机抖动，点击前再插
+    0~50ms 随机静默；避免几千次重复点同一像素。
+  - `_click_enter_immediately()`：改为 `take_screenshot(min_interval=0.08)` +
+    `find_element(model="normal")` + `mouse_action_with_pos(interval=0.12)`；
+    进"进入"按钮的轮询从被全局 0.25s 节流压着，变成 0.08s 一次。
+  - 新增 `_natural_bus` / `_bus_is_natural` / `_after_enter()`：扫图时地图被拖到角落，
+    拖拽后的 Bus 坐标只在"进图第一步"有效；进入节点后用规划时记下的自然位置
+    `(586,330)` 继续盲点，未命中则本层放弃自然位置改回实时定位（防连撞）。
+  - `search_road_from_road_map()`：记录 Bus 自然位置；"点 Bus 直接进入"探针的等待
+    0.8s → 0.35s（实测 55 次扫描中从未命中）。
+- 冲突风险：低。`search_road.py` 的两处改动都是新增函数/常量。
+
+### test — 寻路相关用例更新
+
+- `tests/unit/tasks/test_flow_speedups.py`：寻路用例改为 mock `_click_enter_immediately`，
+  新增抖动范围、进入后切回自然位置、未命中后放弃自然位置、进入按钮轮询间隔四例。
+
 ### test `8ce623b` — 回归测试（新增文件，无冲突）
 
 - `tests/unit/module/automation/test_screenshot_reuse.py`
