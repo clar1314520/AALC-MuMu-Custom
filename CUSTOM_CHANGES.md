@@ -399,3 +399,17 @@ uv run --no-sync ruff check tasks/mirror tasks/event module/automation
   直接把 3 技能匹配点吸附到最近的技能格（点击格距是 161×scale，两边不一致会整体偏一格）。
 - 新增 `_battle_probe_dump()`：`logs/battle_probe.on` 存在时，每次划线都把当帧+点击点
   存到 `logs/battle_probe/`，用于以后在真实帧上复核几何（默认不写文件，保留最近 24 个）。
+
+### fix(battle) — 划线前必须按住起点齿轮等技能栏展开（真机实测定论）
+
+用户指出并现场确认的机制：**按住左侧齿轮不放，游戏才把技能栏展开**（卡片放大、
+罪人头像被压下）。`mouse_drag_link` 原来是按下后立刻移动，展开动画还没开始，
+于是"按 250*scale 算出来的技能坐标"全部落在未展开的罪人头像行上——
+这才是"守备没划到 / 3 技能不准"的根因，不是坐标本身算错。
+
+- `mouse_drag_link`（MuMu / pyautogui / 窗口消息 / Simulator 四套实现）新增
+  `hold_before` 参数：按下后先按住 N 秒再开始移动。
+- `_chain_battle` / `_defense_this_round`：划线统一传 `hold_before=SKILL_ROW_HOLD`(0.45s)；
+  几何量（`y_offset=250`、下层 `+125*scale`、收尾点 `+150*scale`）全部还原上游原值。
+- 保留 `_snap_indexes_to_slots`（3 技能索引按最近格吸附，替代 145/161 混用的除法）。
+- 保留 `gear_right` 阈值放宽到 0.45（实战帧只有 0.50~0.58，5 次里 3 次因此放弃改按 P）。

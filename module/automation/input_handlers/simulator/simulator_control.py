@@ -744,7 +744,9 @@ class SimulatorControl(AbstractInput):
             return False
         return True
 
-    def mouse_drag_link(self, position: list, drag_time=0.15, move_back=False) -> None:
+    def mouse_drag_link(
+        self, position: list, drag_time=0.15, move_back=False, hold_before=0.0
+    ) -> None:
         """
         拖动鼠标经过多个中间点（折线），最后松开
         """

@@ -106,7 +106,9 @@ class AbstractInput:
         """
         raise InterruptedError(f"未实现的输入方法 {self.__class__.__name__}.mouse_drag_down")
 
-    def mouse_drag_link(self, position: list, drag_time=0.1, move_back=False) -> None:
+    def mouse_drag_link(
+        self, position: list, drag_time=0.1, move_back=False, hold_before=0.0
+    ) -> None:
         """鼠标从指定位置拖动到指定位置
         Args:
             x (int): 起始x坐标

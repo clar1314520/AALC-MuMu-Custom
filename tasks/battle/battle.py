@@ -21,8 +21,9 @@ from utils.image_utils import ImageUtils
 from utils.utils import find_skill3
 
 DEFENSE_FOR_SOLO_TURN_LIMIT = 5
-# 守备技能行相对技能卡行的下移量（1440 基准，1600×900 实测约 50px）
-DEFENSE_ROW_OFFSET = 80
+# 按住起点齿轮后，游戏会展开技能栏（卡片变大、罪人头像被压下），这段动画不完，
+# 后面算出来的技能坐标就全落在头像行上——"划了但没选中"的根因。
+SKILL_ROW_HOLD = 0.45
 
 # 技能栏几何校准开关：设置 AALC_BATTLE_PROBE=1 后，每次划线都会把当帧和点击点存到
 # logs/battle_probe/，用来在真实帧上核对格距、行高。正常跑不会写文件。
@@ -627,10 +628,11 @@ class Battle:
         scale: float = cfg.set_win_size / 1440
         skill_size: float = 161 * scale
         x_offset: float = 220 - 4.5 * skill_nums
-        # 技能卡行的行高：以 gear_left 为基准往下 32*scale（1600×900 实测约 20px）。
-        # 原来写 250*scale（约 156px），落点在技能卡下方约 140px 的罪人头像行上，
-        # 游戏不会把它当成选技能/选守备，于是出现"划了但没生效"。
-        y_offset: float = 32
+        # 行高：以 gear_left 为基准往下 250*scale。注意这个值是"按住齿轮、技能栏
+        # 展开后"的行高——展开时卡片变大、罪人头像被压下，250*scale 正好落在卡片上；
+        # 没展开时同一坐标会落在罪人头像上（所以拖拽必须先按住齿轮等展开，
+        # 见 _chain_battle / _defense_this_round 里的 hold_before）。
+        y_offset: float = 250
 
         for index in range(skill_nums):
             pos = [
@@ -743,17 +745,15 @@ class Battle:
 
             Battle._calculate_skills_position(
                 skill_list,
-                gear_left,
+                (gear_left[0], gear_left[1] - 125 * scale),
                 skill_nums,
                 custom_tune=custom_tune,
             )
             for index in sorted(lower_row_indexes):
-                # 下层技能在技能卡行下方（1600×900 实测约 50~78px）
-                skill_list[index][1] += 80 * scale
+                skill_list[index][1] += 125 * scale
                 skill_list[index] = custom_tune(skill_list[index], index, skill_nums, scale, reverse=-1)
 
-            # 收尾点：从最后一张卡往右下方拉出，避免连线停在卡片上误选
-            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_left[1] + 120 * scale])
+            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale])
 
             _battle_probe_dump(
                 "chain",
@@ -763,7 +763,7 @@ class Battle:
                 f"prioritize={prioritize_skill_3}",
             )
 
-            auto.mouse_drag_link(skill_list)
+            auto.mouse_drag_link(skill_list, hold_before=SKILL_ROW_HOLD)
 
             auto.mouse_to_blank()
 
@@ -794,29 +794,25 @@ class Battle:
             skill_list = []
             Battle._calculate_skills_position(skill_list, gear_left, skill_nums)
 
-            # 第一步：点每个罪人头像，把该角色的技能替换成守备（头像在最下面那一排，
-            # 行高是 250*scale；技能卡行是 32*scale，两者不是同一行）。
-            portrait_y = gear_left[1] + 250 * scale
-            for pos in skill_list:
-                auto.mouse_click(pos[0], portrait_y)
+            # 第一步：点每个罪人头像，把该角色的技能替换成守备（此时技能栏还没展开，
+            # 250*scale 正好落在最下面那排罪人头像上）
+            for skill in skill_list:
+                auto.mouse_click(skill[0], skill[1])
                 if cfg.simulator:
                     sleep(cfg.mouse_action_interval)
                 else:
                     sleep(cfg.mouse_action_interval // 1.5)
 
-            # 第二步：沿技能卡行划线，把替换好的守备技能用出去（划线走卡片行，
-            # 走头像行游戏不认，这正是"划了但守备没生效"的原因）。
             skill_list.insert(0, gear_left)
-            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_left[1] + 120 * scale])
+            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale])
 
             _battle_probe_dump(
                 "defense",
                 skill_list,
-                f"skill_nums={skill_nums} gear_left={gear_left} gear_right={gear_right} "
-                f"bbox={bbox} portrait_y={portrait_y:.1f}",
+                f"skill_nums={skill_nums} gear_left={gear_left} gear_right={gear_right} bbox={bbox}",
             )
 
-            auto.mouse_drag_link(skill_list)
+            auto.mouse_drag_link(skill_list, hold_before=SKILL_ROW_HOLD)
 
             auto.mouse_to_blank(move_back=move_back)
 

@@ -1,5 +1,6 @@
 import random
-from time import sleep, time
+import time
+from time import sleep
 from typing import overload
 
 import pyautogui
@@ -278,13 +279,17 @@ class Input(WinAbstractInput, metaclass=SingletonMeta):
         pyautogui.moveTo(coordinate[0], coordinate[1])
         self.wait_pause()
 
-    def mouse_drag_link(self, position: list, drag_time=0.1, move_back=False) -> None:
+    def mouse_drag_link(
+        self, position: list, drag_time=0.1, move_back=False, hold_before=0.0
+    ) -> None:
         if move_back:
             current_mouse_position = self.get_mouse_position()
 
         x, y = self.pos_offset(position[0][0], position[0][1])
         pyautogui.moveTo(x, y)
         pyautogui.mouseDown()
+        if hold_before > 0:
+            time.sleep(hold_before)
         for pos in position:
             x, y = self.pos_offset(pos[0], pos[1])
             pyautogui.moveTo(x, y, duration=drag_time)
@@ -483,7 +488,9 @@ class BackgroundInput(WinAbstractInput, metaclass=SingletonMeta):
         self.wait_pause()
         return True
 
-    def mouse_drag_link(self, position: list, drag_time=0.1, move_back=True) -> None:
+    def mouse_drag_link(
+        self, position: list, drag_time=0.1, move_back=True, hold_before=0.0
+    ) -> None:
         """鼠标从指定位置拖动到指定位置
         Args:
             x (int): 起始x坐标
@@ -730,10 +737,14 @@ class WindowMoveInput(WinAbstractInput, metaclass=SingletonMeta):
 
         screen.handle.set_window_pos(*pos)
 
-    def mouse_drag_link(self, position: list, drag_time=0.1, move_back=False) -> None:
+    def mouse_drag_link(
+        self, position: list, drag_time=0.1, move_back=False, hold_before=0.0
+    ) -> None:
         raw_pos = self._set_window_pos(position[0][0], position[0][1])
         self.set_active()
         self.mouse_down(position[0][0], position[0][1])
+        if hold_before > 0:
+            time.sleep(hold_before)
         for pos in position:
             self._window_move_to(pos[0], pos[1], duration=drag_time)
 

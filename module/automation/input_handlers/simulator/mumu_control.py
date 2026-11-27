@@ -1302,15 +1302,22 @@ class MumuControl(AbstractInput):
         """占位"""
         return 0, 0
 
-    def mouse_drag_link(self, position: list, drag_time=0.25, min_distance=10, move_back=False) -> None:
+    def mouse_drag_link(
+        self, position: list, drag_time=0.25, min_distance=10, move_back=False, hold_before=0.0
+    ) -> None:
         """鼠标从指定位置拖动到指定位置
         Args:
             x (int): 起始x坐标
             y (int): 起始y坐标
             position (list): 目标位置列表
             drag_time (float): 拖动时间
+            hold_before (float): 按下后先按住多少秒再开始移动。游戏里按住起点图标
+                会触发"技能栏展开"（卡变大、头像被压下），不等这一步展开，后面的
+                坐标全都对不上，划线会落在头像行上。
         """
         self.down(position[0][0], position[0][1])
+        if hold_before > 0:
+            time.sleep(hold_before)
         p = (position[0][0], position[0][1])
         for pos in position[1:]:
             points = insert_swipe(p0=(p[0], p[1]), p3=(pos[0], pos[1]), min_distance=min_distance)
