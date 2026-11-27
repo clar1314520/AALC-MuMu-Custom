@@ -446,12 +446,6 @@ class SettingInterface(QWidget):
             QT_TRANSLATE_NOOP("BasePrimaryPushSettingCard", "discord群"),
             "https://discord.gg/vUAw98cEVe",
         )
-        self.feedback_card = BasePrimaryPushSettingCard(
-            QT_TRANSLATE_NOOP("BasePrimaryPushSettingCard", "提供反馈"),
-            FIF.FEEDBACK,
-            QT_TRANSLATE_NOOP("BasePrimaryPushSettingCard", "提供反馈"),
-            QT_TRANSLATE_NOOP("BasePrimaryPushSettingCard", "帮助我们改进 AhabAssistantLimbusCompany"),
-        )
 
         self.theme_pack_group = BaseSettingCardGroup(
             QT_TRANSLATE_NOOP("BaseSettingCardGroup", "镜牢主题包设置"),
@@ -553,7 +547,6 @@ class SettingInterface(QWidget):
 
         self.about_group.addSettingCard(self.github_card)
         self.about_group.addSettingCard(self.discord_group_card)
-        self.about_group.addSettingCard(self.feedback_card)
 
         self.experimental_group.addSettingCard(self.hdr_warning_card)
         self.experimental_group.addSettingCard(self.keep_screen_awake_card)
@@ -642,9 +635,6 @@ class SettingInterface(QWidget):
         # 最后连接外链卡片，统一复用打开 URL 的回调工厂。
         self.github_card.clicked.connect(self.__openUrl("https://github.com/KIYI671/AhabAssistantLimbusCompany"))
         self.discord_group_card.clicked.connect(self.__openUrl("https://discord.gg/vUAw98cEVe"))
-        self.feedback_card.clicked.connect(
-            self.__openUrl("https://github.com/KIYI671/AhabAssistantLimbusCompany/issues")
-        )
 
     def __onGamePathCardClicked(self):
         game_path, _ = QFileDialog.getOpenFileName(self, "选择游戏路径", "", "Game Executable (LimbusCompany.exe)")
@@ -808,7 +798,6 @@ class SettingInterface(QWidget):
         self.open_logs_card.retranslateUi()
         self.github_card.retranslateUi()
         self.discord_group_card.retranslateUi()
-        self.feedback_card.retranslateUi()
         self.experimental_group.retranslateUi()
         self.hdr_warning_card.retranslateUi()
         self.keep_screen_awake_card.retranslateUi()

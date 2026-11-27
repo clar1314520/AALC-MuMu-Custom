@@ -842,9 +842,15 @@ class Battle:
                 else:
                     sleep(click_gap / 1.5)
 
-            # 第二步：划线走展开态的下排（守备就排在那里）
+            # 等游戏把卡片切成守备，再开始划线（太急会划到还没换过来的普通技能）
+            sleep(0.15)
+
+            # 第二步：划线走展开态的下排（守备就排在那里）。
+            # 路径先"垂直下到本行"再横向划，避免从齿轮斜着穿到第一张卡时
+            # 顺路蹭到上排的普通技能（表现就是"跳过守备只选了最上面的技能"）。
             skill_list = []
             Battle._calculate_skills_position(skill_list, gear_left, skill_nums)
+            skill_list.insert(0, [gear_left[0] + 10 * scale, skill_list[0][1]])
             skill_list.insert(0, gear_left)
             skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale])
 

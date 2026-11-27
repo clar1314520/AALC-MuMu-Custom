@@ -2,7 +2,8 @@
 
 > **本项目基于 [KIYI671/AhabAssistantLimbusCompany](https://github.com/KIYI671/AhabAssistantLimbusCompany) 修改，遵循 [AGPL-3.0](./LICENSE) 协议开源。**
 >
-> 这是一个**个人向的性能魔改分支**，不是上游官方版本。上游的完整说明文档已保留在
+> 这是一个**个人向的性能魔改分支**，不是上游官方版本，**不接收 bug 反馈到上游**。
+> 侵权请联系 **QQ 768723309** 删除。上游的完整说明文档已保留在
 > [README.upstream.md](./README.upstream.md)，功能原理、安装步骤、常见问题请优先看上游文档。
 
 ---
@@ -113,7 +114,34 @@ touch logs/battle_probe.on
 
 ---
 
-## 协议与致谢
+## 侵权联系与致谢
+
+### 侵权联系
+
+若本项目的内容（代码、文档、图片素材等）侵犯了你的权益，**请直接联系我删除**：
+
+> **QQ：768723309**
+>
+> 收到通知后我会尽快下架对应内容或整个仓库，不需要走任何流程。
+
+本项目只是个人魔改，**不要把本分支的问题反馈到上游仓库**——本分支已移除设置里的
+「提供反馈」入口（它原本指向上游 issues），请不要拿这个分支的 bug 去打扰原作者。
+
+### 本项目用到了哪些开源项目
+
+这个分支不是从零写的，**99% 的能力来自别人的开源工作**，必须写清楚：
+
+| 开源项目 | 作者 / 链接 | 本项目用到了什么 |
+|---|---|---|
+| **AhabAssistantLimbusCompany (AALC)** | [KIYI671](https://github.com/KIYI671/AhabAssistantLimbusCompany) | **整个项目的基础**：镜牢/日常/战斗/商店全部逻辑、界面、模板体系。本分支只是在其上做性能修改 |
+| LixAssistantLimbusCompany (LALC) | [HSLix](https://github.com/HSLix/LixAssistantLimbusCompany) | 上游作者的起点项目，AALC 的架构与思路来源 |
+| RapidOCR | [RapidAI](https://github.com/RapidAI/RapidOCR) | 全部文字识别（队伍、主题包、楼层、金钱、事件选项） |
+| PyQt-Fluent-Widgets | [zhiyiYo](https://github.com/zhiyiYo/PyQt-Fluent-Widgets) | 全部界面组件 |
+| March7thAssistant | [moesnow](https://github.com/moesnow/March7thAssistant) | 上游借鉴的模拟器与任务调度思路 |
+| blue_archive_auto_script (BAAS) | [pur1fying](https://github.com/pur1fying/blue_archive_auto_script) | 上游借鉴的模拟器连接代码 |
+| Sarasa Gothic（更纱黑体） | [be5invis](https://github.com/be5invis/Sarasa-Gothic) | `ChineseFont.ttf`，遵循 SIL Open Font License |
+
+其余依赖见 [requirements.txt](./requirements.txt)（OpenCV、onnxruntime、PySide6 等）。
 
 ### 协议
 
