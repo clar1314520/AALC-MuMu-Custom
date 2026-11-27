@@ -652,11 +652,11 @@ class Battle:
         scale: float = cfg.set_win_size / 1440
         skill_size: float = 161 * scale
         x_offset: float = 220 - 4.5 * skill_nums
-        # 行高（给"技能栏展开后"的两排卡片）：实测 1600×900 下上排中心 ≈ gear_left.y
-        # + 50*scale、下排中心 ≈ +125*scale，两排间距 78px 正好是 125*scale。
-        # 没展开时同一坐标会落在罪人头像上，所以划线前必须按住齿轮等展开；
-        # "点罪人头像切成守备"那一步要用未展开的 250*scale，单独传参。
-        y_offset: float = 175
+        # 行高由调用方通过 y_offset 传入（原来这里又写了一遍 y_offset=175，
+        # 把参数整个遮蔽掉了，所以所有按行位调的改动都不会生效）。
+        # 实测（1600×900）：
+        #   未展开：罪人头像中心 ≈ gear_left.y + 175*scale（≈785）
+        #   展开后：上排普通技能 ≈ +160*scale（≈775）、下排守备槽 ≈ +255*scale（≈835）
 
         for index in range(skill_nums):
             pos = [
@@ -801,6 +801,8 @@ class Battle:
                 hold_before=_skill_row_hold(),
                 after_hold=lambda pts=skill_list: _battle_probe_dump("expanded", pts, "按下展开后的落点"),
             )
+            # 划完之后再存一帧：用来确认这一轮到底排上了什么
+            _battle_probe_dump("chain_after", skill_list, "3技能划完之后")
 
             auto.mouse_to_blank()
 
@@ -810,7 +812,8 @@ class Battle:
 
             sleep(1)
             return True
-        except Exception:
+        except Exception as e:
+            log.debug(f"守备划线失败: {e}")
             return False
 
     @staticmethod
@@ -828,12 +831,12 @@ class Battle:
 
             skill_nums = int((bbox[2] - bbox[0]) / (145 * scale))
 
-            # 第一步：点每个罪人头像，把该角色的技能替换成守备。
-            # 此时技能栏还没展开，头像行用 250*scale；划线行用默认（展开态下排）。
+            # 第一步：点每个罪人头像，把该角色的卡片换成守备。
+            # 行位实测（1600×900）：技能卡 660~750（中心 700）、罪人头像 756~818（中心 787）、
+            # 血条 820~845。原来点 250*scale(≈832) 正好落在血条带上，等于没点到头像，
+            # 卡片当然不会变守备；这里改成 175*scale(≈785) = 头像中心。
             portraits = []
-            Battle._calculate_skills_position(portraits, gear_left, skill_nums, y_offset=250)
-
-            # 间隔压到 0.12s 以上：太密游戏会吞点击，没切成守备的角色会沿用普通技能。
+            Battle._calculate_skills_position(portraits, gear_left, skill_nums, y_offset=175)
             click_gap = max(0.12, cfg.mouse_action_interval)
             for skill in portraits:
                 auto.mouse_click(skill[0], skill[1])
@@ -842,17 +845,20 @@ class Battle:
                 else:
                     sleep(click_gap / 1.5)
 
-            # 等游戏把卡片切成守备，再开始划线（太急会划到还没换过来的普通技能）
-            sleep(0.15)
+            # 等卡片真的切成守备（换技能有动画，太急会划到还没换过来的普通技能）
+            sleep(0.4)
 
-            # 第二步：划线走展开态的下排（守备就排在那里）。
-            # 路径先"垂直下到本行"再横向划，避免从齿轮斜着穿到第一张卡时
-            # 顺路蹭到上排的普通技能（表现就是"跳过守备只选了最上面的技能"）。
+            # 第二步：沿「下排」划线 —— 就是点头像之后变成守备的那一排。
+            # 实测标尺（1600×900，展开状态）：
+            #   上排普通技能卡中心 ≈ 775、下排守备槽中心 ≈ 835。
+            # 所以这里必须用 y_offset=255（gear_left.y + 255*scale ≈ 835），
+            # 用默认的 175（≈785）会划在上排普通技能上 —— 这正是"划了但守备没生效"。
             skill_list = []
-            Battle._calculate_skills_position(skill_list, gear_left, skill_nums)
+            Battle._calculate_skills_position(skill_list, gear_left, skill_nums, y_offset=255)
             skill_list.insert(0, [gear_left[0] + 10 * scale, skill_list[0][1]])
             skill_list.insert(0, gear_left)
-            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale])
+            # 收尾点也留在守备行上（原来收在 150*scale 处，正好是上排普通技能的 y）
+            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_left[1] + 255 * scale])
 
             _battle_probe_dump(
                 "defense",
@@ -865,10 +871,12 @@ class Battle:
                 hold_before=_skill_row_hold(),
                 after_hold=lambda pts=skill_list: _battle_probe_dump("expanded", pts, "按下展开后的落点"),
             )
+            _battle_probe_dump("defense_after", skill_list, "守备划完之后")
 
             auto.mouse_to_blank(move_back=move_back)
 
             sleep(1)
             return True
-        except Exception:
+        except Exception as e:
+            log.debug(f"守备操作异常: {e}")
             return False

@@ -88,3 +88,24 @@ def test_avoid_mode_keeps_skill3_slots():
     """避免模式应该把 3 技能格切到下层；优先模式反过来。"""
     assert Battle._get_lower_row_skill_indexes({1, 3}, 5, prioritize_skill_3=False) == {1, 3}
     assert Battle._get_lower_row_skill_indexes({1, 3}, 5, prioritize_skill_3=True) == {2, 4, 5}
+
+def test_skill_row_y_offset_is_honored():
+    """y_offset 必须真的生效。
+
+    曾经函数体里又写了一遍 `y_offset = 175`，把参数遮蔽掉，
+    导致调用方传什么行高都不管用（守备一直划在普通技能行上）。
+    """
+    scale = 900 / 1440
+    gear_left = (285, 676)
+
+    upper = []
+    Battle._calculate_skills_position(upper, gear_left, 8)
+    assert round(upper[0][1]) == round(676 + 175 * scale)
+
+    guard = []
+    Battle._calculate_skills_position(guard, gear_left, 8, y_offset=255)
+    assert round(guard[0][1]) == round(676 + 255 * scale)
+    assert round(guard[0][1]) > round(upper[0][1]), "守备行必须在上排技能行下方"
+
+    # 传入行高不能被函数体内部写死覆盖
+    assert round(upper[0][1]) != round(guard[0][1])
