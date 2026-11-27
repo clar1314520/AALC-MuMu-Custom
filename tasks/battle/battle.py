@@ -209,7 +209,7 @@ class Battle:
         )
         limited_defense_succeeded = False
         if (use_limited_defense or use_first_round_defense) and auto.find_element(
-            "battle/gear_left.png", threshold=0.9
+            "battle/gear_left.png", threshold=0.8
         ):
             if use_limited_defense:
                 msg = f"小指良单通连续防御（剩余{defense_for_solo_state.remaining_turns}回合），开始战斗"
@@ -248,7 +248,7 @@ class Battle:
                 msg = "使用全员防御模式开始战斗"
                 self._defense_this_round()
         elif (avoid_skill_3 or prioritize_skill_3) and auto.find_element(
-            "battle/gear_left.png", threshold=0.9
+            "battle/gear_left.png", threshold=0.8
         ):
             use_prioritize_skill_3 = prioritize_skill_3 and not avoid_skill_3
             mode_name = "优先" if use_prioritize_skill_3 else "避免"
@@ -264,6 +264,10 @@ class Battle:
                 sleep(0.5)
                 auto.key_press("enter")
         else:
+            if (avoid_skill_3 or prioritize_skill_3) and not auto.find_element(
+                "battle/gear_left.png", threshold=0.8
+            ):
+                log.debug("没识别到技能栏齿轮，本回合退回P+Enter")
             self._press_p_enter()
             msg = "使用P+Enter开始战斗"
         log.debug(msg)
