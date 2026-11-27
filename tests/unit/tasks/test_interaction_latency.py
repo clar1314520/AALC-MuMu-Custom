@@ -70,20 +70,16 @@ def test_shop_leave_confirm_timeout(monkeypatch):
     assert Shop._wait_leave_confirm(shop, timeout=0.2) is False
 
 
-def test_skill3_index_is_one_based():
-    """x=0 必须映射到第 1 格（skill_list[0] 是起点齿轮，不是技能格）。"""
+def test_skill3_snaps_to_nearest_slot():
+    """匹配点要吸附到最近的技能格，且格号从 1 开始（skill_list[0] 是起点齿轮）。"""
     scale = 900 / 1440
-    per_slot = 145 * scale
+    slots = [400 + 161 * scale * i for i in range(6)]
 
-    indexes = Battle._skill3_indexes_from_matches(
-        [(0.0, 10)], scale
-    )
-    assert indexes == {1}, "最左边一格的 3 技能不能被算成第 0 格"
-
-    indexes = Battle._skill3_indexes_from_matches(
-        [(per_slot * 2, 10), (per_slot * 5, 10)], scale
-    )
-    assert indexes == {3, 6}
+    assert Battle._snap_indexes_to_slots(slots, slots[:1]) == {1}
+    assert Battle._snap_indexes_to_slots(slots, [slots[2], slots[5]]) == {3, 6}
+    # 偏半格以内也要吸到正确格子（点击有抖动，不能因为几像素就跳到隔壁）
+    assert Battle._snap_indexes_to_slots(slots, [slots[3] + 40 * scale]) == {4}
+    assert Battle._snap_indexes_to_slots([], [100]) == set()
 
 
 def test_avoid_mode_keeps_skill3_slots():

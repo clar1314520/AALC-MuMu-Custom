@@ -381,3 +381,21 @@ uv run --no-sync ruff check tasks/mirror tasks/event module/automation
   - 勾「禁止狂气换体」→ 日志出现「设置了禁止狂气换体」，游戏内狂气数值不变
   - 勾「禁止体力换饼」→ 日志出现「设置了禁止体力换饼」，镜牢开局不再弹脑啡肽面板
   - 狂气换体下拉框选「不换」→ 日志出现「狂气换体次数为 0」，且完全不操作面板
+
+### fix(battle) — 修正划线/守备的落点行（真机帧实测）+ 3 技能索引吸附
+
+真机探针（`AALC_BATTLE_PROBE`）抓到的关键帧：`skill_nums=8 / gear_left=(285,676)`，
+算出来的 8 个点击点 y=832，**全部压在罪人头像行**（技能卡在 y≈690，头像在 y≈770 以下），
+游戏自然不会把它当成"选技能/选守备"。
+
+- `_calculate_skills_position`：`y_offset` 250 → **32**（156px → 20px），落点回到技能卡行。
+- `_chain_battle`：去掉调用处多减的 `-125*scale`（原来是在补偿错误的基准行）；
+  下层改成 `+80*scale`；收尾点改用 `gear_left` 行高，避免拉回头像行。
+- `_defense_this_round`：按"点罪人头像替换技能 → 再沿技能卡行划线"重排——
+  头像点击仍用 `250*scale`（这一行本来就是头像），**划线改走技能卡行**（原来两条都走头像）。
+- `_chain_battle` / `_defense_this_round`：`gear_right` 阈值单独放宽到 0.45
+  （实测实战帧只有 0.50~0.58，按 0.8 判定会整条放弃改按 P，5 次里失败 3 次）。
+- `_skill3_indexes_from_matches` → `_snap_indexes_to_slots`：不再用 145×scale 除，
+  直接把 3 技能匹配点吸附到最近的技能格（点击格距是 161×scale，两边不一致会整体偏一格）。
+- 新增 `_battle_probe_dump()`：`logs/battle_probe.on` 存在时，每次划线都把当帧+点击点
+  存到 `logs/battle_probe/`，用于以后在真实帧上复核几何（默认不写文件，保留最近 24 个）。

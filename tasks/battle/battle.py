@@ -1,3 +1,4 @@
+import os
 import random
 import re
 import time
@@ -20,6 +21,54 @@ from utils.image_utils import ImageUtils
 from utils.utils import find_skill3
 
 DEFENSE_FOR_SOLO_TURN_LIMIT = 5
+# 守备技能行相对技能卡行的下移量（1440 基准，1600×900 实测约 50px）
+DEFENSE_ROW_OFFSET = 80
+
+# 技能栏几何校准开关：设置 AALC_BATTLE_PROBE=1 后，每次划线都会把当帧和点击点存到
+# logs/battle_probe/，用来在真实帧上核对格距、行高。正常跑不会写文件。
+BATTLE_PROBE_DIR = os.path.join("logs", "battle_probe")
+BATTLE_PROBE_ON = os.path.join("logs", "battle_probe.on")
+
+
+def _battle_probe_enabled() -> bool:
+    # 环境变量或标记文件都算打开；标记文件更可靠（打包/提权后环境变量可能丢失）
+    return os.environ.get("AALC_BATTLE_PROBE") == "1" or os.path.exists(BATTLE_PROBE_ON)
+
+
+def _battle_probe_dump(tag: str, points, info: str) -> None:
+    """存一份"当帧 + 点击点"的对照图，供离线校准。任何异常都不影响战斗。"""
+    if not _battle_probe_enabled():
+        return
+    try:
+        if auto.take_screenshot(gray=False) is None:
+            return
+        frame = np.array(auto.screenshot)
+        canvas = frame[:, :, ::-1].copy() if frame.ndim == 3 else cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        for index, (x, y) in enumerate(points):
+            cv2.drawMarker(canvas, (int(x), int(y)), (0, 0, 255), cv2.MARKER_CROSS, 26, 2)
+            cv2.putText(
+                canvas, str(index + 1), (int(x) - 8, int(y) - 14),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2,
+            )
+        os.makedirs(BATTLE_PROBE_DIR, exist_ok=True)
+        stamp = time.strftime("%H%M%S")
+        cv2.imwrite(os.path.join(BATTLE_PROBE_DIR, f"{stamp}_{tag}.png"), canvas)
+        with open(os.path.join(BATTLE_PROBE_DIR, f"{stamp}_{tag}.txt"), "w", encoding="utf-8") as f:
+            f.write(info)
+            f.write("\npoints:\n")
+            for index, (x, y) in enumerate(points):
+                f.write(f"  {index + 1}: ({x:.1f}, {y:.1f})\n")
+        files = sorted(
+            (os.path.join(BATTLE_PROBE_DIR, n) for n in os.listdir(BATTLE_PROBE_DIR)),
+            key=os.path.getmtime,
+        )
+        for old in files[:-24]:
+            try:
+                os.remove(old)
+            except OSError:
+                pass
+    except Exception as e:  # 探针不能影响战斗
+        log.debug(f"战斗探针写入失败: {e}")
 
 
 @dataclass
@@ -578,7 +627,10 @@ class Battle:
         scale: float = cfg.set_win_size / 1440
         skill_size: float = 161 * scale
         x_offset: float = 220 - 4.5 * skill_nums
-        y_offset: float = 250
+        # 技能卡行的行高：以 gear_left 为基准往下 32*scale（1600×900 实测约 20px）。
+        # 原来写 250*scale（约 156px），落点在技能卡下方约 140px 的罪人头像行上，
+        # 游戏不会把它当成选技能/选守备，于是出现"划了但没生效"。
+        y_offset: float = 32
 
         for index in range(skill_nums):
             pos = [
@@ -607,14 +659,22 @@ class Battle:
         return skill_3_indexes
 
     @staticmethod
-    def _skill3_indexes_from_matches(matches, scale: float) -> set[int]:
-        """把 3 技能匹配的 x 坐标换算成 skill_list 的下标（1 基）。
+    def _snap_indexes_to_slots(
+        slot_centers_x: list[float],
+        match_xs: list[float],
+    ) -> set[int]:
+        """把匹配到的 x 坐标吸附到最近技能格，返回 1 基格号。
 
-        skill_list[0] 是左边的起点齿轮，技能格从 1 开始；match[0] 是相对裁剪图的
-        0 基坐标，所以必须 +1。少了这个 +1 会整体左移一格（选到隔壁技能），
-        并且最左边一格的 3 技能会被算成 0 而被过滤掉（直接划过去不选）。
+        点击位置是按 161×scale 的格距排布的，而原来的换算用的是 145×scale，
+        两边格距不一致，会让每个格号整体偏一格（把隔壁格子当成 3 技能）。
+        这里不再做除法，直接把匹配点贴到最近的格子上，格距改了多少都不会错位。
         """
-        return {round(match[0] / (145 * scale)) + 1 for match in matches}
+        if not slot_centers_x:
+            return set()
+        return {
+            min(range(len(slot_centers_x)), key=lambda i: abs(slot_centers_x[i] - x)) + 1
+            for x in match_xs
+        }
 
     @staticmethod
     def _chain_battle(prioritize_skill_3: bool = False) -> bool:
@@ -622,7 +682,10 @@ class Battle:
             scale = cfg.set_win_size / 1440
 
             gear_left = auto.find_element("battle/gear_left.png")
-            gear_right = auto.find_element("battle/gear_right.png")
+            # gear_right 只是定位锚点（算格数、算收尾点），实战里常只有 0.5~0.6 相似度
+            # （右侧被 Win Rate 面板压住/高亮）。按 0.8 判定会直接放弃整条划线改按 P，
+            # 实测 5 次里有 3 次就是这么失败的，所以单独放宽。
+            gear_right = auto.find_element("battle/gear_right.png", threshold=0.45)
             if gear_left is None or gear_right is None:
                 return False
 
@@ -643,9 +706,15 @@ class Battle:
             skill_3_matches = []
             for sin_color in sins.values():
                 skill_3_matches.extend(find_skill3(sc, sin_color))
-            # skill_list 的第 0 项是左边那个齿轮（划线的起点），真正的技能格从 1 开始，
-            # 而 match[0] 是相对裁剪图的 0 基坐标，换算时 +1（见 _skill3_indexes_from_matches）
-            skill_3_indexes = Battle._skill3_indexes_from_matches(skill_3_matches, scale)
+            # 每格的点击中心（与实际点击用的是同一套公式，只是去掉三角微调），
+            # 3 技能匹配点换算成绝对坐标后吸附到最近的格子，避免格距不一致导致整体偏一格
+            slot_centers_x = [
+                gear_left[0] + (220 - 4.5 * skill_nums + 161 * i) * scale for i in range(skill_nums)
+            ]
+            skill_3_indexes = Battle._snap_indexes_to_slots(
+                slot_centers_x,
+                [bbox[0] + match[0] for match in skill_3_matches],
+            )
             log.debug(f"识别到 3 技能格: {sorted(skill_3_indexes)} / 共 {skill_nums} 格")
             lower_row_indexes = Battle._get_lower_row_skill_indexes(
                 skill_3_indexes,
@@ -674,15 +743,25 @@ class Battle:
 
             Battle._calculate_skills_position(
                 skill_list,
-                (gear_left[0], gear_left[1] - 125 * scale),
+                gear_left,
                 skill_nums,
                 custom_tune=custom_tune,
             )
             for index in sorted(lower_row_indexes):
-                skill_list[index][1] += 125 * scale
+                # 下层技能在技能卡行下方（1600×900 实测约 50~78px）
+                skill_list[index][1] += 80 * scale
                 skill_list[index] = custom_tune(skill_list[index], index, skill_nums, scale, reverse=-1)
 
-            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale])
+            # 收尾点：从最后一张卡往右下方拉出，避免连线停在卡片上误选
+            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_left[1] + 120 * scale])
+
+            _battle_probe_dump(
+                "chain",
+                skill_list,
+                f"skill_nums={skill_nums} gear_left={gear_left} gear_right={gear_right} "
+                f"bbox={bbox} skill3={sorted(skill_3_indexes)} lower={sorted(lower_row_indexes)} "
+                f"prioritize={prioritize_skill_3}",
+            )
 
             auto.mouse_drag_link(skill_list)
 
@@ -705,7 +784,7 @@ class Battle:
             gear_left = auto.find_element("battle/gear_left.png")
 
             gear_1 = [gear_left[0] + 100 * scale, gear_left[1] - 35 * scale]
-            gear_right = auto.find_element("battle/gear_right.png")
+            gear_right = auto.find_element("battle/gear_right.png", threshold=0.45)
             gear_2 = [gear_right[0] - 100 * scale, gear_right[1]]
 
             bbox = (gear_1[0], gear_1[1] - 15 * scale, gear_2[0], gear_1[1])
@@ -715,15 +794,27 @@ class Battle:
             skill_list = []
             Battle._calculate_skills_position(skill_list, gear_left, skill_nums)
 
-            for skill in skill_list:
-                auto.mouse_click(skill[0], skill[1])
+            # 第一步：点每个罪人头像，把该角色的技能替换成守备（头像在最下面那一排，
+            # 行高是 250*scale；技能卡行是 32*scale，两者不是同一行）。
+            portrait_y = gear_left[1] + 250 * scale
+            for pos in skill_list:
+                auto.mouse_click(pos[0], portrait_y)
                 if cfg.simulator:
                     sleep(cfg.mouse_action_interval)
                 else:
                     sleep(cfg.mouse_action_interval // 1.5)
 
+            # 第二步：沿技能卡行划线，把替换好的守备技能用出去（划线走卡片行，
+            # 走头像行游戏不认，这正是"划了但守备没生效"的原因）。
             skill_list.insert(0, gear_left)
-            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale])
+            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_left[1] + 120 * scale])
+
+            _battle_probe_dump(
+                "defense",
+                skill_list,
+                f"skill_nums={skill_nums} gear_left={gear_left} gear_right={gear_right} "
+                f"bbox={bbox} portrait_y={portrait_y:.1f}",
+            )
 
             auto.mouse_drag_link(skill_list)
 
