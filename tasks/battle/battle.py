@@ -683,19 +683,28 @@ class Battle:
     def _snap_indexes_to_slots(
         slot_centers_x: list[float],
         match_xs: list[float],
+        max_distance: float | None = None,
     ) -> set[int]:
         """把匹配到的 x 坐标吸附到最近技能格，返回 1 基格号。
 
         点击位置是按 161×scale 的格距排布的，而原来的换算用的是 145×scale，
         两边格距不一致，会让每个格号整体偏一格（把隔壁格子当成 3 技能）。
         这里不再做除法，直接把匹配点贴到最近的格子上，格距改了多少都不会错位。
+
+        3 技能是每回合随机刷的，色块也可能在卡片外零星出现，所以给了
+        ``max_distance``（默认半格）：离任何格子都超过半格的匹配点直接丢掉，
+        免得一个杂色块把边上那格判成 3 技能。
         """
         if not slot_centers_x:
             return set()
-        return {
-            min(range(len(slot_centers_x)), key=lambda i: abs(slot_centers_x[i] - x)) + 1
-            for x in match_xs
-        }
+        if max_distance is None:
+            max_distance = 161 * (cfg.set_win_size / 1440) / 2
+        indexes = set()
+        for x in match_xs:
+            nearest = min(range(len(slot_centers_x)), key=lambda i: abs(slot_centers_x[i] - x))
+            if abs(slot_centers_x[nearest] - x) <= max_distance:
+                indexes.add(nearest + 1)
+        return indexes
 
     @staticmethod
     def _chain_battle(prioritize_skill_3: bool = False) -> bool:

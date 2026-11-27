@@ -79,6 +79,8 @@ def test_skill3_snaps_to_nearest_slot():
     assert Battle._snap_indexes_to_slots(slots, [slots[2], slots[5]]) == {3, 6}
     # 偏半格以内也要吸到正确格子（点击有抖动，不能因为几像素就跳到隔壁）
     assert Battle._snap_indexes_to_slots(slots, [slots[3] + 40 * scale]) == {4}
+    # 离所有格子都超过半格（例如卡片外的杂色块）要丢掉，不能误判成边上那格
+    assert Battle._snap_indexes_to_slots(slots, [slots[5] + 200 * scale]) == set()
     assert Battle._snap_indexes_to_slots([], [100]) == set()
 
 
