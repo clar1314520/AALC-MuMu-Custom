@@ -475,3 +475,20 @@ uv run --no-sync ruff check tasks/mirror tasks/event module/automation
 - `_defense_this_round`：点头像用 `y_offset=175`（785=头像中心，原来点在 832 的血条带上），
   划线用 `y_offset=255`（835=守备槽），收尾点也留在守备行（原来收在上排技能行）。
 - 点头像后加 `sleep(0.4)` 等换技能动画，划线路径先垂直到本行再横向划。
+
+### fix(battle) — 3 技能的「下层」偏移改为一整排（125 → 205×scale）
+
+`_chain_battle` 里"切到下层技能"原来下移 `125*scale`（≈78px，半排多一点），
+落点卡在上排技能行与下层行之间的缝里 —— 表现为"想选下层的 3 技能，结果选到了上排的 1/2 技能"。
+
+实测行位（1600×900，展开状态）：
+
+| 行 | 公式 | y |
+|---|---|---|
+| 上排技能（`_chain_battle` 基准） | `gear_left.y + 50*scale` | **707** |
+| 下层技能 / 守备行 | `gear_left.y + 255*scale` | **835** |
+| 两排差 | `205*scale` | 128px |
+
+- 新增常量 `LOWER_SKILL_ROW_DELTA = 205`，替换两处 `125*scale`；
+- 收尾点从 `gear_right.y + 150*scale`（≈779，正好在缝里）改为上排行高；
+- 新增单测 `test_lower_skill_row_delta_lands_on_second_row` 锁死 707/835 两个落点。

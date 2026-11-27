@@ -26,6 +26,13 @@ DEFENSE_FOR_SOLO_TURN_LIMIT = 5
 # 实际时长取配置项 skill_row_hold（高级设置里可调），这里只是兜底默认值。
 SKILL_ROW_HOLD = 0.45
 
+# 下层技能行相对上排行的下移量（1440 基准）。
+# 实测（1600×900，展开状态）：上排技能行 y ≈ gear_left.y + 50*scale（≈707），
+# 下层技能/守备行 y ≈ gear_left.y + 255*scale（≈835），两者差 128px ≈ 205*scale。
+# 原来这里写 125*scale（≈78px），只下移了半排多一点，落点卡在两排之间，
+# 于是"想选下层 3 技能"时实际点到了上排 1/2 技能。
+LOWER_SKILL_ROW_DELTA = 205
+
 
 def _skill_row_hold() -> float:
     try:
@@ -783,10 +790,11 @@ class Battle:
                 custom_tune=custom_tune,
             )
             for index in sorted(lower_row_indexes):
-                skill_list[index][1] += 125 * scale
+                skill_list[index][1] += LOWER_SKILL_ROW_DELTA * scale
                 skill_list[index] = custom_tune(skill_list[index], index, skill_nums, scale, reverse=-1)
 
-            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale])
+            # 收尾点留在上排技能行（原来收在 +150*scale，正好落在两排之间的缝里）
+            skill_list.append([gear_right[0] + 5 * skill_nums * scale, gear_left[1] + 50 * scale])
 
             _battle_probe_dump(
                 "chain",

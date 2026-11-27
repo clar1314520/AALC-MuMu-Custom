@@ -109,3 +109,20 @@ def test_skill_row_y_offset_is_honored():
 
     # 传入行高不能被函数体内部写死覆盖
     assert round(upper[0][1]) != round(guard[0][1])
+
+def test_lower_skill_row_delta_lands_on_second_row():
+    """下层技能行必须比上排低一整排（实测 ≈128px），不是半排。
+
+    原来用 125*scale(≈78px)，落点卡在两排之间，想选下层 3 技能时
+    实际点到了上排 1/2 技能。
+    """
+    from tasks.battle.battle import LOWER_SKILL_ROW_DELTA
+
+    scale = 900 / 1440
+    gear_left = (285, 676)
+    upper = []
+    Battle._calculate_skills_position(upper, (gear_left[0], gear_left[1] - 125 * scale), 8)
+    lower_y = upper[0][1] + LOWER_SKILL_ROW_DELTA * scale
+
+    assert round(upper[0][1]) == 707, "上排基准行应为 ≈707"
+    assert 830 <= round(lower_y) <= 840, "下层技能行应落在 ≈835（与守备行同一排）"
